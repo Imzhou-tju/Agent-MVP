@@ -29,7 +29,7 @@ class SimpleVectorStore:
         )
 
         self.vector_store = Chroma(
-            collection_name="cyberclaw_knowledge",
+            collection_name="clawgent_knowledge",
             embedding_function=self.embeddings,
             persist_directory=str(self.index_dir),
         )
@@ -59,7 +59,7 @@ class SimpleVectorStore:
     def rebuild_from_documents(self, documents: list[tuple[str, str]]) -> int:
         self.vector_store.delete_collection()
         self.vector_store = Chroma(
-            collection_name="cyberclaw_knowledge",
+            collection_name="clawgent_knowledge",
             embedding_function=self.embeddings,
             persist_directory=str(self.index_dir),
         )

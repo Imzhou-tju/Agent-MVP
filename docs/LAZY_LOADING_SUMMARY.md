@@ -1,4 +1,4 @@
-# CyberClaw 懒加载实现总结
+# Clawgent 懒加载实现总结
 
 ## 🎯 实现目标
 
@@ -197,7 +197,7 @@ def _extract_metadata(self, md_path: str) -> Optional[Dict[str, str]]:
 ### 基本使用（向后兼容）
 
 ```python
-from cyberclaw.core.skill_loader import load_dynamic_skills
+from clawgent.core.skill_loader import load_dynamic_skills
 
 # 与之前完全相同的使用方式
 tools = load_dynamic_skills()
@@ -206,7 +206,7 @@ tools = load_dynamic_skills()
 ### 高级使用
 
 ```python
-from cyberclaw.core.skill_loader import (
+from clawgent.core.skill_loader import (
     load_dynamic_skills,
     reload_skills,
     get_skill_count,
@@ -280,11 +280,11 @@ clear_skill_cache()
 
 ## 🎉 总结
 
-通过实现渐进式加载 + 智能缓存机制，CyberClaw 在以下方面取得了显著改进：
+通过实现渐进式加载 + 智能缓存机制，Clawgent 在以下方面取得了显著改进：
 
 1. **性能提升**：启动速度提升 99.98%，内存占用降低 80%
 2. **扩展性**：支持无限数量的技能，不再受限于预加载
 3. **开发体验**：热更新支持，无需重启 Agent
 4. **向后兼容**：完全兼容现有代码，零迁移成本
 
-这些改进使得 CyberClaw 能够轻松处理大规模技能生态，为未来的功能扩展奠定了坚实的基础。
+这些改进使得 Clawgent 能够轻松处理大规模技能生态，为未来的功能扩展奠定了坚实的基础。

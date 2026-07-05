@@ -1,8 +1,8 @@
-# CyberClaw RAG System README
+# Clawgent RAG System README
 
 ## 1. 系统定位
 
-CyberClaw 的 RAG 子系统用于为主 Agent 提供企业/校园知识库检索能力。
+Clawgent 的 RAG 子系统用于为主 Agent 提供企业/校园知识库检索能力。
 它不是独立问答服务，而是以工具的形式接入 LangGraph 主循环，在需要依据内部文档回答问题时参与决策。
 
 当前实现采用**证据驱动的结构化 Agentic RAG**：
@@ -72,15 +72,15 @@ flowchart TD
 
 ### 3.1 检索服务层
 
-- `cyberclaw/core/rag/service.py`
+- `clawgent/core/rag/service.py`
  - RAG 主服务入口 `KnowledgeBaseService`
  - 负责查询分析、检索、融合、重排、Self-RAG、CRAG gate、可靠性降级
 
-- `cyberclaw/core/rag/vector_store.py`
+- `clawgent/core/rag/vector_store.py`
  - `SimpleVectorStore`
  - 负责 Chroma 向量索引、BM25 索引、文档写入、混合检索
 
-- `cyberclaw/core/rag/reliability.py`
+- `clawgent/core/rag/reliability.py`
  - `CircuitBreaker`
  - `DeadLetterQueue`
  - `llm_call_with_reliability`
@@ -88,25 +88,25 @@ flowchart TD
 
 ### 3.2 数据处理层
 
-- `cyberclaw/core/rag/loader.py`
+- `clawgent/core/rag/loader.py`
  - 加载 txt / md / pdf 文档
 
-- `cyberclaw/core/rag/text_utils.py`
+- `clawgent/core/rag/text_utils.py`
  - 文本归一化
  - 中文滑窗切分
 
 ### 3.3 工具接入层
 
-- `cyberclaw/core/tools/rag_tools.py`
+- `clawgent/core/tools/rag_tools.py`
  - 暴露 `search_knowledge_base()`
  - 暴露 `rebuild_knowledge_index()`
 
-- `cyberclaw/core/tools/builtins.py`
+- `clawgent/core/tools/builtins.py`
  - 将知识库工具注册到系统内置工具集合
 
 ### 3.4 配置层
 
-- `cyberclaw/core/config.py`
+- `clawgent/core/config.py`
  - RAG embedding / reranker / LLM 配置
  - 索引目录、知识库目录、chunk 参数等
 

@@ -1,8 +1,8 @@
-# CyberClaw 技能懒加载机制
+# Clawgent 技能懒加载机制
 
 ## 概述
 
-CyberClaw 实现了**渐进式加载 + 缓存**的技能加载机制，显著提升了系统的启动速度和内存使用效率。
+Clawgent 实现了**渐进式加载 + 缓存**的技能加载机制，显著提升了系统的启动速度和内存使用效率。
 
 ## 核心特性
 
@@ -41,7 +41,7 @@ CyberClaw 实现了**渐进式加载 + 缓存**的技能加载机制，显著提
 ### 基本使用
 
 ```python
-from cyberclaw.core.skill_loader import load_dynamic_skills, get_skill_count
+from clawgent.core.skill_loader import load_dynamic_skills, get_skill_count
 
 # 获取所有工具（懒加载占位符）
 tools = load_dynamic_skills()
@@ -54,7 +54,7 @@ print(f"当前有 {count} 个技能")
 ### 强制重新扫描
 
 ```python
-from cyberclaw.core.skill_loader import reload_skills
+from clawgent.core.skill_loader import reload_skills
 
 # 当你添加了新技能时调用
 tools = reload_skills()
@@ -63,7 +63,7 @@ tools = reload_skills()
 ### 清除缓存
 
 ```python
-from cyberclaw.core.skill_loader import clear_skill_cache
+from clawgent.core.skill_loader import clear_skill_cache
 
 # 清除所有技能内容缓存
 clear_skill_cache()
@@ -227,7 +227,7 @@ clear_skill_cache()
 ### 3. 开发调试
 
 ```python
-from cyberclaw.core.skill_loader import clear_skill_cache, reload_skills
+from clawgent.core.skill_loader import clear_skill_cache, reload_skills
 
 # 修改技能后
 clear_skill_cache()   # 清除旧内容缓存
@@ -238,7 +238,7 @@ reload_skills()       # 重新扫描目录
 
 ```python
 # 启动时（自动懒加载，无需额外操作）
-from cyberclaw.core.agent import create_agent_app
+from clawgent.core.agent import create_agent_app
 
 app = create_agent_app()  # 自动使用懒加载
 
@@ -254,7 +254,7 @@ app = create_agent_app()  # 自动使用懒加载
 
 **解决**：
 ```python
-from cyberclaw.core.skill_loader import reload_skills
+from clawgent.core.skill_loader import reload_skills
 reload_skills()
 ```
 
@@ -264,7 +264,7 @@ reload_skills()
 
 **解决**：
 ```python
-from cyberclaw.core.skill_loader import clear_skill_cache
+from clawgent.core.skill_loader import clear_skill_cache
 clear_skill_cache()
 ```
 
@@ -285,7 +285,7 @@ clear_skill_cache()
 ### 查看加载统计
 
 ```python
-from cyberclaw.core.skill_loader import _lazy_loader
+from clawgent.core.skill_loader import _lazy_loader
 
 # 查看缓存信息
 print(f"已缓存技能数: {_lazy_loader._load_skill_content.cache_info().currsize}")

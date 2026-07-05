@@ -1,4 +1,4 @@
-from .base import cyberclaw_tool
+from .base import clawgent_tool
 from ..config import RAG_INITIAL_TOP_K, RAG_TOP_K, KB_UPLOAD_DIR
 
 # 懒初始化：KnowledgeBaseService 的构造会建立 Chroma / embedding 客户端，
@@ -14,7 +14,7 @@ def _get_kb():
     return _kb_service
 
 
-@cyberclaw_tool
+@clawgent_tool
 def search_knowledge_base(query: str) -> str:
     """在企业知识库中检索与用户问题相关的官方文档。
     当用户问及公司规定、内部文档、操作指南、报销流程、政策制度等需要依据资料回答的问题时，必须调用此工具。
@@ -43,7 +43,7 @@ def search_knowledge_base(query: str) -> str:
     )
 
 
-@cyberclaw_tool
+@clawgent_tool
 def rebuild_knowledge_index() -> str:
     """重建企业知识库的向量索引。
     当用户向知识库目录新增、修改或删除了 txt/md/pdf 文档后，

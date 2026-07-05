@@ -8,7 +8,7 @@ from rich.status import Status
 from dotenv import set_key, load_dotenv, unset_key
 import sys
 
-from cyberclaw.core.provider import get_provider
+from clawgent.core.provider import get_provider
 from langchain_core.messages import HumanMessage
 
 ENTRY_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -19,7 +19,7 @@ os.chdir(PROJECT_ROOT)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-app = typer.Typer(help="CyberClaw - 极客专属的赛博智能终端")
+app = typer.Typer(help="Clawgent - 极客专属的赛博智能终端")
 console = Console()
 
 cyber_style = questionary.Style([
@@ -38,8 +38,8 @@ ENV_PATH = os.path.join(PROJECT_ROOT, ".env")
 def config_wizard():
     console.clear()
     console.print(Panel(
-        "👾 Welcome to [bold #8d52ff]CyberClaw[/bold #8d52ff]...\n\n☁️[dim] 请完成模型配置，我们将把密钥安全固化在本地。[/dim]", 
-        title="[bold white]✦  CyberClaw Config[/bold white]", 
+        "👾 Welcome to [bold #8d52ff]Clawgent[/bold #8d52ff]...\n\n☁️[dim] 请完成模型配置，我们将把密钥安全固化在本地。[/dim]", 
+        title="[bold white]✦  Clawgent Config[/bold white]", 
         border_style="#8d52ff"
     ))
     provider_raw = questionary.select(
@@ -50,7 +50,7 @@ def config_wizard():
     ).ask()
 
     if not provider_raw:
-        console.print("[dim #8d52ff]✦   录入中断，CyberClaw 配置已取消。[/dim #8d52ff]")
+        console.print("[dim #8d52ff]✦   录入中断，Clawgent 配置已取消。[/dim #8d52ff]")
         return
 
     provider = provider_raw.split(" ")[0].strip()
@@ -62,7 +62,7 @@ def config_wizard():
     ).ask()
 
     if model_name is None:
-        console.print("[dim #8d52ff]✦   录入中断，CyberClaw 配置已取消。[/dim #8d52ff]")
+        console.print("[dim #8d52ff]✦   录入中断，Clawgent 配置已取消。[/dim #8d52ff]")
         return
 
     api_key = ""
@@ -79,7 +79,7 @@ def config_wizard():
         ).ask()
 
         if api_key is None:
-            console.print("[dim #8d52ff]✦   录入中断，CyberClaw 配置已取消。[/dim #8d52ff]")
+            console.print("[dim #8d52ff]✦   录入中断，Clawgent 配置已取消。[/dim #8d52ff]")
             return
 
     base_url = ""
@@ -100,7 +100,7 @@ def config_wizard():
         ).ask()
 
     if base_url is None:
-        console.print("[dim #8d52ff]✦   录入中断，CyberClaw 配置已取消。[/dim #8d52ff]")
+        console.print("[dim #8d52ff]✦   录入中断，Clawgent 配置已取消。[/dim #8d52ff]")
         return
 
     console.print("\n[dim]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/dim]")
@@ -150,15 +150,15 @@ def config_wizard():
     console.print(Panel(
         f"配置已保存至 [#8d52ff]{ENV_PATH}[/#8d52ff]\n"
         f"当前默认提供商: [#8d52ff]{provider}[/#8d52ff] | 模型: [#8d52ff]{model_name}[/#8d52ff]\n\n"
-        f"👉 输入 [bold #00ffff]cyberclaw run[/bold #00ffff] 即可启动系统！",
+        f"👉 输入 [bold #00ffff]clawgent run[/bold #00ffff] 即可启动系统！",
         border_style="#00ffff"
     ))
 
 def _show_boot_error():
     console.print(Panel(
-        "[bold #00ffff]CyberClaw未完成配置![/bold #00ffff]\n\n"
+        "[bold #00ffff]Clawgent未完成配置![/bold #00ffff]\n\n"
         "[#8d52ff]检测到 API Key、模型或Baseurl。请重新执行以下命令完成配置：[/#8d52ff]\n"
-        "[bold #00ffff]cyberclaw config[/bold #00ffff]",
+        "[bold #00ffff]clawgent config[/bold #00ffff]",
         title="[bold #8d52ff]⚠️ Boot Sequence Failed[/bold #8d52ff]",
         border_style="#8d52ff"
     ))
@@ -183,15 +183,15 @@ def run_agent():
                 _show_boot_error()
                 raise typer.Exit()
         
-    import entry.main as cyberclaw_main
-    cyberclaw_main.main()
+    import entry.main as clawgent_main
+    clawgent_main.main()
 
 @app.command("monitor")
 def run_monitor():    
         
     try:
-        import entry.monitor as cyberclaw_monitor
-        cyberclaw_monitor.main()
+        import entry.monitor as clawgent_monitor
+        clawgent_monitor.main()
     except ImportError as e:
         console.print(f"[bold red]启动失败：找不到监视器模块！[/bold red]\n[dim]请确保 monitor.py 和 cli.py 在同一目录下。\n报错信息: {e}[/dim]")
 

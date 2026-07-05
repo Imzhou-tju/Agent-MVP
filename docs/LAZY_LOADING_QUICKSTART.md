@@ -31,7 +31,7 @@ description: 我的第一个技能，用于演示懒加载
 ### 3. 使用技能
 
 ```python
-from cyberclaw.core.skill_loader import load_dynamic_skills
+from clawgent.core.skill_loader import load_dynamic_skills
 
 # 获取所有技能（自动懒加载）
 tools = load_dynamic_skills()
@@ -44,7 +44,7 @@ tools = load_dynamic_skills()
 ### 查看技能数量
 
 ```python
-from cyberclaw.core.skill_loader import get_skill_count
+from clawgent.core.skill_loader import get_skill_count
 
 count = get_skill_count()
 print(f"当前有 {count} 个技能")
@@ -53,7 +53,7 @@ print(f"当前有 {count} 个技能")
 ### 添加新技能后刷新
 
 ```python
-from cyberclaw.core.skill_loader import reload_skills
+from clawgent.core.skill_loader import reload_skills
 
 # 强制重新扫描技能目录
 tools = reload_skills()
@@ -62,7 +62,7 @@ tools = reload_skills()
 ### 修改技能内容后清除缓存
 
 ```python
-from cyberclaw.core.skill_loader import clear_skill_cache
+from clawgent.core.skill_loader import clear_skill_cache
 
 # 清除缓存（下次调用自动重新加载）
 clear_skill_cache()
@@ -106,7 +106,7 @@ clear_skill_cache()
 
 **解决**：
 ```python
-from cyberclaw.core.skill_loader import reload_skills
+from clawgent.core.skill_loader import reload_skills
 reload_skills()
 ```
 
@@ -116,7 +116,7 @@ reload_skills()
 
 **解决**：
 ```python
-from cyberclaw.core.skill_loader import clear_skill_cache
+from clawgent.core.skill_loader import clear_skill_cache
 clear_skill_cache()
 ```
 
