@@ -18,7 +18,30 @@ OFFICE_DIR = os.path.join(WORKSPACE_DIR, "office")         # 沙盒工位 唯一
 SKILLS_DIR = os.path.join(OFFICE_DIR, "skills")            # 技能卡槽
 TASKS_FILE = os.path.join(WORKSPACE_DIR, "tasks.json")
 
-for d in [WORKSPACE_DIR, MEMORY_DIR, PERSONAS_DIR, SCRIPTS_DIR, OFFICE_DIR, SKILLS_DIR]:
+# ==================== RAG 知识库 ====================
+KB_UPLOAD_DIR = os.path.join(WORKSPACE_DIR, "knowledge_base")   # 语料底库：放入待检索的 txt/md/pdf
+KB_INDEX_DIR = os.path.join(WORKSPACE_DIR, "kb_index")          # Chroma 向量索引持久化目录
+
+# 检索用远程 API（OpenAI 兼容）。缺省值指向 SiliconFlow，key 由 .env 注入。
+RAG_EMBEDDING_MODEL = os.getenv("RAG_EMBEDDING_MODEL", "BAAI/bge-large-zh-v1.5")
+RAG_EMBEDDING_API_KEY = os.getenv("RAG_EMBEDDING_API_KEY", "")
+RAG_EMBEDDING_BASE_URL = os.getenv("RAG_EMBEDDING_BASE_URL", "https://api.siliconflow.cn/v1")
+
+RAG_RERANKER_MODEL = os.getenv("RAG_RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
+RAG_RERANKER_API_KEY = os.getenv("RAG_RERANKER_API_KEY", "")
+RAG_RERANKER_BASE_URL = os.getenv("RAG_RERANKER_BASE_URL", "https://api.siliconflow.cn/v1/rerank")
+
+# 多查询扩写用的 chat 模型（OpenAI 兼容）。留空则复用 ANTHROPIC/OPENAI 主配置由 service 侧回退。
+RAG_LLM_MODEL = os.getenv("RAG_LLM_MODEL", "DeepSeek-V4-Flash")
+RAG_LLM_API_KEY = os.getenv("RAG_LLM_API_KEY", os.getenv("ANTHROPIC_API_KEY", ""))
+RAG_LLM_BASE_URL = os.getenv("RAG_LLM_BASE_URL", "https://www.sophnet.com/api/open-apis/v1")
+
+RAG_CHUNK_SIZE = int(os.getenv("RAG_CHUNK_SIZE", "250"))
+RAG_CHUNK_OVERLAP = int(os.getenv("RAG_CHUNK_OVERLAP", "50"))
+RAG_INITIAL_TOP_K = int(os.getenv("RAG_INITIAL_TOP_K", "15"))
+RAG_TOP_K = int(os.getenv("RAG_TOP_K", "4"))
+
+for d in [WORKSPACE_DIR, MEMORY_DIR, PERSONAS_DIR, SCRIPTS_DIR, OFFICE_DIR, SKILLS_DIR, KB_UPLOAD_DIR, KB_INDEX_DIR]:
     os.makedirs(d, exist_ok=True)
 
 print(f"🔧 [Config] Workspace 路径已就绪: {WORKSPACE_DIR}")
