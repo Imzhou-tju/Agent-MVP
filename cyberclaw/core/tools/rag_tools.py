@@ -28,15 +28,12 @@ def search_knowledge_base(query: str) -> str:
     """
     kb = _get_kb()
     try:
-        docs = kb.search(query, top_k=RAG_INITIAL_TOP_K)
+        top_docs = kb.search_agentic(query, top_k=RAG_INITIAL_TOP_K)
     except Exception as e:
         return f"知识库检索失败：{e}（常见原因：embedding API key 无效或余额不足，请检查 RAG_EMBEDDING_API_KEY）。"
-    if not docs:
+    if not top_docs:
         return "没有在知识库中找到相关文档（知识库可能为空，请先调用 rebuild_knowledge_index 建立索引）。"
-
-    reranked = kb.rerank(query, docs)
-    reranked.sort(key=lambda x: x.get("rerank_score", 0.0), reverse=True)
-    top_docs = reranked[:RAG_TOP_K]
+    top_docs = top_docs[:RAG_TOP_K]
     if not top_docs:
         return "没有在知识库中找到相关文档。"
 

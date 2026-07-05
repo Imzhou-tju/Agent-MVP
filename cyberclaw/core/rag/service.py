@@ -10,6 +10,7 @@ from langchain_core.output_parsers import StrOutputParser
 
 from .. import config
 from .vector_store import SimpleVectorStore
+from .reliability import CircuitBreaker, DeadLetterQueue, llm_call_with_reliability
 
 
 class KnowledgeBaseService:
@@ -31,6 +32,15 @@ class KnowledgeBaseService:
                 self.synonyms = json.loads(synonyms_path.read_text(encoding="utf-8"))
             except Exception as e:
                 print(f"[RAG] 加载同义词词典失败: {e}")
+
+        # 方法级熔断器：各自独立，互不影响
+        self._cb_assess = CircuitBreaker("assess_query", failure_threshold=3, recovery_timeout=60.0)
+        self._cb_critique = CircuitBreaker("critique_docs", failure_threshold=3, recovery_timeout=60.0)
+        self._cb_crag = CircuitBreaker("crag_gate", failure_threshold=3, recovery_timeout=60.0)
+
+        import os
+        dlq_path = os.path.join(config.KB_INDEX_DIR, "dlq.sqlite")
+        self._dlq = DeadLetterQueue(db_path=dlq_path, retry_fn=None)  # 只持久化，不自动重试（同步链路）
 
     def _apply_synonym_expansion(self, query: str) -> list[str]:
         expanded = []
@@ -60,19 +70,31 @@ class KnowledgeBaseService:
             '{{"expand": false, "decompose": false, "sub_queries": []}}'
         )
         chain = prompt | self.llm | StrOutputParser()
-        try:
+
+        def _call():
             raw = chain.invoke({"query": query}).strip()
             m = re.search(r'\{.*\}', raw, re.DOTALL)
-            data = json.loads(m.group(0)) if m else {}
+            if not m:
+                raise ValueError(f"JSON 解析失败，原始输出: {raw[:200]}")
+            data = json.loads(m.group(0))
             subs = [s for s in data.get("sub_queries", []) if isinstance(s, str) and s.strip()]
             return {
                 "expand": bool(data.get("expand", False)),
                 "decompose": bool(data.get("decompose", False)) and len(subs) >= 2,
                 "sub_queries": subs[:4],
             }
-        except Exception as e:
-            print(f"[RAG] 查询评估失败，回退直查: {e}")
-            return {"expand": False, "decompose": False, "sub_queries": []}
+
+        fallback = {"expand": False, "decompose": False, "sub_queries": []}
+        result = llm_call_with_reliability(
+            method_name="assess_query",
+            circuit_breaker=self._cb_assess,
+            dlq=self._dlq,
+            fn=_call,
+            fallback=fallback,
+            query=query,
+            context={"query": query},
+        )
+        return result if result is not None else fallback
 
     def generate_multi_queries(self, query: str, n: int = 3) -> list[str]:
         prompt = ChatPromptTemplate.from_template(
@@ -133,6 +155,133 @@ class KnowledgeBaseService:
 
         final_list = sorted(merged.values(), key=lambda x: x.get('rrf_score', 0), reverse=True)
         return final_list[:search_top_k * 2]
+
+    def _critique_docs(self, query: str, documents: list[dict]) -> list[dict]:
+        """Self-RAG：LLM 批量判断每个 doc 与 query 的相关性，过滤无关片段。
+
+        用 LLM 而非 rerank 分数做门控的理由：rerank 给相对排序，LLM critique
+        给绝对判断（"这段话能否帮助回答这个问题"），两者互补。
+        """
+        if not documents:
+            return []
+
+        docs_text = "\n\n".join(
+            f"[{i}] {doc['text'][:300]}" for i, doc in enumerate(documents)
+        )
+        prompt = ChatPromptTemplate.from_template(
+            "你是一个检索质量评估器。判断以下每个文档片段对于回答用户问题是否有实质帮助。\n\n"
+            "用户问题: {query}\n\n"
+            "文档片段（格式: [索引] 内容）:\n{docs}\n\n"
+            "对每个片段输出 JSON 数组，每项包含 index 和 relevant(bool)。\n"
+            "严格只输出 JSON 数组，不要解释:\n"
+            '[{{"index": 0, "relevant": true}}, ...]'
+        )
+        chain = prompt | self.llm | StrOutputParser()
+
+        def _call():
+            raw = chain.invoke({"query": query, "docs": docs_text}).strip()
+            m = re.search(r'\[.*\]', raw, re.DOTALL)
+            if not m:
+                raise ValueError(f"JSON 数组解析失败，原始输出: {raw[:200]}")
+            results = json.loads(m.group(0))
+            relevant_indices = {r["index"] for r in results if r.get("relevant", True)}
+            filtered = [doc for i, doc in enumerate(documents) if i in relevant_indices]
+            return filtered if filtered else documents[:2]
+
+        result = llm_call_with_reliability(
+            method_name="critique_docs",
+            circuit_breaker=self._cb_critique,
+            dlq=self._dlq,
+            fn=_call,
+            fallback=None,
+            query=query,
+            context={"query": query, "doc_count": len(documents)},
+        )
+        # fallback=None 表示 critique 失败，跳过过滤返回原始列表
+        return result if result is not None else documents
+
+    def _crag_gate(self, query: str, documents: list[dict]) -> dict:
+        """CRAG 门控：LLM 评估当前检索结果是否足以回答问题。
+
+        返回: {"sufficient": bool, "rewrite_query": str | None}
+        sufficient=False 时提供改写后的 query 用于补充检索。
+        """
+        if not documents:
+            return {"sufficient": False, "rewrite_query": query}
+
+        docs_text = "\n\n".join(
+            f"[{i+1}] {doc['text'][:400]}" for i, doc in enumerate(documents[:5])
+        )
+        prompt = ChatPromptTemplate.from_template(
+            "你是一个检索充分性评估器。判断以下检索结果是否足以回答用户问题。\n\n"
+            "用户问题: {query}\n\n"
+            "已检索到的文档片段:\n{docs}\n\n"
+            "判断规则:\n"
+            "- 如果文档包含直接或间接回答问题所需的核心信息，标记 sufficient=true。\n"
+            "- 如果文档与问题基本无关、或信息明显不完整，标记 sufficient=false，"
+            "并给出一个更精准的改写查询 rewrite_query。\n\n"
+            "严格只输出 JSON，不要解释:\n"
+            '{{"sufficient": true, "rewrite_query": null}}'
+        )
+        chain = prompt | self.llm | StrOutputParser()
+
+        def _call():
+            raw = chain.invoke({"query": query, "docs": docs_text}).strip()
+            m = re.search(r'\{.*\}', raw, re.DOTALL)
+            if not m:
+                raise ValueError(f"JSON 解析失败，原始输出: {raw[:200]}")
+            data = json.loads(m.group(0))
+            return {
+                "sufficient": bool(data.get("sufficient", True)),
+                "rewrite_query": data.get("rewrite_query") or None,
+            }
+
+        fallback = {"sufficient": True, "rewrite_query": None}
+        result = llm_call_with_reliability(
+            method_name="crag_gate",
+            circuit_breaker=self._cb_crag,
+            dlq=self._dlq,
+            fn=_call,
+            fallback=fallback,
+            query=query,
+            context={"query": query, "doc_count": len(documents)},
+        )
+        return result if result is not None else fallback
+
+    def search_agentic(self, query: str, top_k: int | None = None) -> list[dict]:
+        """Adaptive + Self-RAG + CRAG 三层检索管线。
+
+        流程: Adaptive 策略决策 → 多路检索+RRF → rerank
+              → Self-RAG critique 过滤 → CRAG 充分性评估
+              → 不足时 query 改写补检索一轮（max 1 次，防 drift）
+        """
+        search_top_k = top_k or config.RAG_TOP_K
+
+        # 第一轮：Adaptive 策略 + 多路检索（已有 search() 含 _assess_query）
+        docs = self.search(query, top_k=search_top_k)
+        if not docs:
+            return []
+
+        reranked = self.rerank(query, docs)
+        reranked.sort(key=lambda x: x.get("rerank_score", 0.0), reverse=True)
+        top_docs = reranked[:search_top_k * 2]
+
+        # Self-RAG：批量 critique，过滤无关片段
+        critiqued = self._critique_docs(query, top_docs)
+
+        # CRAG 门控：评估是否足够，不足则改写补检索（最多 1 次）
+        gate = self._crag_gate(query, critiqued)
+        if not gate["sufficient"] and gate["rewrite_query"]:
+            rewrite_q = gate["rewrite_query"]
+            extra_docs = self.search(rewrite_q, top_k=search_top_k)
+            if extra_docs:
+                extra_reranked = self.rerank(query, extra_docs)  # 注意：仍用原始 query rerank
+                seen = {d["chunk_id"] for d in critiqued}
+                new_docs = [d for d in extra_reranked if d["chunk_id"] not in seen]
+                critiqued = critiqued + new_docs
+                critiqued.sort(key=lambda x: x.get("rerank_score", 0.0), reverse=True)
+
+        return critiqued
 
     def rerank(self, query: str, documents: list[dict]) -> list[dict]:
         if not documents:
