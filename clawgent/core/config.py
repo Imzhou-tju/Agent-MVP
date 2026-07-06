@@ -41,6 +41,10 @@ RAG_CHUNK_OVERLAP = int(os.getenv("RAG_CHUNK_OVERLAP", "50"))
 RAG_INITIAL_TOP_K = int(os.getenv("RAG_INITIAL_TOP_K", "15"))
 RAG_TOP_K = int(os.getenv("RAG_TOP_K", "4"))
 
+# Research (Multi-Agent 调研系统)
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
+RESEARCH_MAX_CONCURRENT = int(os.getenv("RESEARCH_MAX_CONCURRENT", "5"))
+
 for d in [WORKSPACE_DIR, MEMORY_DIR, PERSONAS_DIR, SCRIPTS_DIR, OFFICE_DIR, SKILLS_DIR, KB_UPLOAD_DIR, KB_INDEX_DIR]:
     os.makedirs(d, exist_ok=True)
 
