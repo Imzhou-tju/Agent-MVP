@@ -113,35 +113,38 @@ class LazySkillLoader:
     
     def _extract_metadata(self, md_path: str) -> Optional[Dict[str, str]]:
         """
-        从技能文件中提取元数据（只读取必要的部分）
-        
-        Args:
-            md_path: 技能文件路径
-        
-        Returns:
-            包含 name 和 description 的字典
+        从技能文件中提取元数据，同时支持两种格式：
+        1. YAML frontmatter（GitHub 社区标准）：--- \n name: xxx \n description: xxx \n ---
+        2. 裸行格式（原有格式）：name: xxx \n description: xxx
         """
         try:
             with open(md_path, "r", encoding="utf-8") as f:
-                # 只读取前 50 行（通常元数据在文件开头）
                 lines = []
                 for i, line in enumerate(f):
                     if i >= 50:
                         break
                     lines.append(line)
-                
-                content = "\n".join(lines)
-            
-            name_match = re.search(r"^name:\s*(.+)$", content, re.MULTILINE)
-            desc_match = re.search(r"^description:\s*(.+)$", content, re.MULTILINE)
-            
+                content = "".join(lines)
+
+            # 优先尝试 YAML frontmatter（--- 包裹）
+            fm_match = re.match(r'^---\s*\n(.*?)\n---', content, re.DOTALL)
+            if fm_match:
+                fm_block = fm_match.group(1)
+                name_match = re.search(r'^name:\s*["\']?(.+?)["\']?\s*$', fm_block, re.MULTILINE)
+                desc_match = re.search(r'^description:\s*["\']?(.+?)["\']?\s*$', fm_block, re.MULTILINE)
+            else:
+                # 回退到裸行格式
+                name_match = re.search(r'^name:\s*(.+)$', content, re.MULTILINE)
+                desc_match = re.search(r'^description:\s*(.+)$', content, re.MULTILINE)
+
             raw_name = name_match.group(1).strip() if name_match else os.path.basename(os.path.dirname(md_path))
             tool_name = re.sub(r'[^a-zA-Z0-9_-]', '_', raw_name)
-            
+
             raw_desc = desc_match.group(1).strip() if desc_match else f"提供 {raw_name} 相关功能"
-            if (raw_desc.startswith('"') and raw_desc.endswith('"')) or (raw_desc.startswith("'") and raw_desc.endswith("'")):
+            if (raw_desc.startswith('"') and raw_desc.endswith('"')) or \
+               (raw_desc.startswith("'") and raw_desc.endswith("'")):
                 raw_desc = raw_desc[1:-1]
-            
+
             return {
                 "raw_name": raw_name,
                 "name": tool_name,
