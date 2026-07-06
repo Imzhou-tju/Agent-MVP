@@ -82,11 +82,21 @@ class LazySkillLoader:
             if not os.path.isdir(folder_path):
                 continue
             
-            md_path = os.path.join(folder_path, "SKILL.md")
-            if not os.path.exists(md_path):
-                md_path = os.path.join(folder_path, "README.md")
+            # 优先查找 src/SKILL.md（sophclaw-skills 三层结构），fallback 根目录
+            src_md = os.path.join(folder_path, "src", "SKILL.md")
+            root_md = os.path.join(folder_path, "SKILL.md")
+            readme_md = os.path.join(folder_path, "README.md")
+            has_src = os.path.exists(src_md)
+            if has_src:
+                md_path = src_md
+            elif os.path.exists(root_md):
+                md_path = root_md
+            elif os.path.exists(readme_md):
+                md_path = readme_md
+            else:
+                md_path = None
             
-            if not os.path.exists(md_path):
+            if md_path is None:
                 continue
             
             try:
@@ -98,6 +108,7 @@ class LazySkillLoader:
                         "folder": item,
                         "md_path": md_path,
                         "mtime": os.path.getmtime(md_path),
+                        "has_src": has_src,
                         **metadata
                     })
             except Exception as e:
@@ -184,7 +195,9 @@ class LazySkillLoader:
                 if not command:
                     return "错误：在 'run' 模式下，必须提供 command 参数！"
                 
-                actual_cmd = command.replace("{baseDir}", f"skills/{skill_info['folder']}")
+                # src/SKILL.md 里 {baseDir} 指向 src/ 目录；根目录 SKILL.md 指向 skill 根目录
+                base = f"skills/{skill_info['folder']}/src" if skill_info.get("has_src") else f"skills/{skill_info['folder']}"
+                actual_cmd = command.replace("{baseDir}", base)
                 return execute_office_shell.invoke({"command": actual_cmd})
             else:
                 return "错误：mode 参数只能是 'help' 或 'run'。"
