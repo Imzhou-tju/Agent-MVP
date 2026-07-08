@@ -36,6 +36,14 @@ RAG_LLM_MODEL = os.getenv("RAG_LLM_MODEL", "DeepSeek-V4-Flash")
 RAG_LLM_API_KEY = os.getenv("RAG_LLM_API_KEY", os.getenv("ANTHROPIC_API_KEY", ""))
 RAG_LLM_BASE_URL = os.getenv("RAG_LLM_BASE_URL", "https://www.sophnet.com/api/open-apis/v1")
 
+# 父块→子切片两级分层切分
+RAG_PARENT_CHUNK_SIZE = int(os.getenv("RAG_PARENT_CHUNK_SIZE", "512"))
+RAG_PARENT_CHUNK_OVERLAP = int(os.getenv("RAG_PARENT_CHUNK_OVERLAP", "64"))
+RAG_CHILD_CHUNK_SIZE = int(os.getenv("RAG_CHILD_CHUNK_SIZE", "128"))
+RAG_CHILD_CHUNK_OVERLAP = int(os.getenv("RAG_CHILD_CHUNK_OVERLAP", "16"))
+# 四级降级文档切片尺寸（解析异常时逐级 fallback）
+RAG_CHUNK_FALLBACK_SIZES = [128, 256, 512, 1024]
+# 向后兼容保留（rerank 等处引用）
 RAG_CHUNK_SIZE = int(os.getenv("RAG_CHUNK_SIZE", "250"))
 RAG_CHUNK_OVERLAP = int(os.getenv("RAG_CHUNK_OVERLAP", "50"))
 RAG_INITIAL_TOP_K = int(os.getenv("RAG_INITIAL_TOP_K", "15"))
@@ -50,4 +58,4 @@ RESEARCH_MAX_CONCURRENT = int(os.getenv("RESEARCH_MAX_CONCURRENT", "5"))
 for d in [WORKSPACE_DIR, MEMORY_DIR, PERSONAS_DIR, SCRIPTS_DIR, OFFICE_DIR, SKILLS_DIR, KB_UPLOAD_DIR, KB_INDEX_DIR]:
     os.makedirs(d, exist_ok=True)
 
-print(f"🔧 [Config] Workspace 路径已就绪: {WORKSPACE_DIR}")
+print(f"[Config] Workspace ready: {WORKSPACE_DIR}")
