@@ -1,7 +1,5 @@
 <div align="center">
 
-![Clawgent Logo](docs/cyber_logo.png)
-
 # Clawgent
 
 ### **科研智能助手 · 可溯源的深度调研与知识库问答**
