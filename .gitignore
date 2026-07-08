@@ -35,7 +35,6 @@ workspace/office
 *Zone.Identifier
 
 # Docs
-README.md
 CLAUDE.md
 # RAG 运行时数据（语料与向量索引，不入库）
 workspace/knowledge_base/
