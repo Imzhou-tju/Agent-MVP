@@ -12,12 +12,12 @@ def _get_safe_path(relative_path: str) -> str:
     将模型传入的相对路径转换为绝对路径，并死死检查它是否越界！
     如果模型尝试传入 "../../etc/passwd"，这里会直接把它拦截。
     """
-    # 将 OFFICE_DIR 转化为标准绝对路径
-    base_dir = os.path.abspath(OFFICE_DIR)
-    # 将目标路径转化为绝对路径
-    target_path = os.path.abspath(os.path.join(base_dir, relative_path))
+    # 将 OFFICE_DIR 转化为真实物理路径，防止容器内创建软链接导致的逃逸
+    base_dir = os.path.realpath(OFFICE_DIR)
+    # 解析目标路径的真实物理路径
+    target_path = os.path.realpath(os.path.join(base_dir, relative_path))
     
-    # 核心防御：目标路径必须以 OFFICE_DIR 开头！
+    # 核心防御：目标路径必须严格以 OFFICE_DIR 真实路径开头！
     if not target_path.startswith(base_dir):
         raise PermissionError(f"越权拦截：你试图访问沙盒外的路径 '{relative_path}'！你只能在 office 工位内活动。")
     
@@ -115,35 +115,24 @@ def execute_office_shell(command: str) -> str:
     在 office 工位中执行 Shell 命令。
     
     ⚠️ 【极其重要的环境限制】：
-    1. 💻 跨平台注意：当前宿主机可能是 Windows、Linux 或 Mac。请根据你得到的环境反馈，使用对应的原生 Shell 命令（例如 Win 用 dir/del，Linux 用 ls/rm）。如果命令报错，请自行调整重试！
+    1. 你现在运行在一个基于 Docker 的隔离容器中 (python:3.10-slim)。
     2. 这是一个非交互式终端！所有命令必须携带免确认参数（如 -y, --quiet）。
-    3. 禁止使用 cd 命令跳出当前目录，你的活动范围仅限 office。
-    4. [无状态警告] 每次执行都是独立的终端进程！需要进入子目录请使用“命令链”或相对路径。
-    5. 禁止一切形式跳出office工位!!! 例如运行跳出或查看office路径的任何脚本以及其他高危操作。
+    3. [无状态警告] 每次执行都是独立的无状态容器进程！需要进入子目录请使用“命令链”或相对路径。
     """
     try:
-        dangerous_patterns = [
-            r"\.\.",                        # 杀招1：拦截所有相对路径越权 (如 ../)
-            r"(?:^|\s|[<>|&;])/",           # 杀招2：Unix 拦截绝对路径 (连 cat </etc/passwd 这种黑客写法也防了)
-            r"(?:^|\s|[<>|&;])~",           # 杀招3：Unix 拦截用户主目录 (防 ~/.ssh/)
-            r"(?:^|\s|[<>|&;])\\",          # 杀招4：Win 拦截根目录 (防 dir \)
-            r"(?i)(?:^|\s|[<>|&;])[a-z]:",  # 杀招5：Win 拦截直接跳盘符及绝对路径 (防 D:, type C:\...)
-        ]
-        for pattern in dangerous_patterns:
-            if re.search(pattern, command):
-                return f"❌ 权限拒绝：检测到危险的目录跳转指令。你被禁止离开 office 工位！"
-
+        # 组装 Docker 命令，将 OFFICE_DIR 映射为容器内的 /workspace
+        docker_cmd = f'docker run --rm -v "{os.path.abspath(OFFICE_DIR)}:/workspace" -w /workspace python:3.10-slim sh -c "{command}"'
+        
         result = subprocess.run(
-            command,
+            docker_cmd,
             shell=True,
-            cwd=OFFICE_DIR,
             capture_output=True,
             encoding='utf-8',
             errors='replace',
             timeout=60
         )
         
-        output = f" ● 当前系统: {SYS_OS}\n"
+        output = f" ● 运行环境: Docker Sandbox (python:3.10-slim)\n"
         output += f" ● 执行命令: `{command}`\n"
         output += f" ● 退出码 (Exit Code): {result.returncode}\n"
         
