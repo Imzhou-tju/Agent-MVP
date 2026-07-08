@@ -11,7 +11,7 @@ from .sandbox_tools import (
     write_office_file,
     execute_office_shell
 )
-from .rag_tools import search_knowledge_base, rebuild_knowledge_index
+from .rag_tools import search_knowledge_base, deep_query_knowledge_base, rebuild_knowledge_index
 from .research_tool import deep_research
 
 
@@ -288,6 +288,7 @@ BUILTIN_TOOLS = [
     delete_scheduled_task,
     modify_scheduled_task,
     search_knowledge_base,
+    deep_query_knowledge_base,
     rebuild_knowledge_index,
     deep_research,
 ]

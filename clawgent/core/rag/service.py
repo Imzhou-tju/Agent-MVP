@@ -283,6 +283,197 @@ class KnowledgeBaseService:
 
         return critiqued
 
+    # -----------------------------------------------------------------------
+    # 多轮推理 RAG（IRCoT 式 retrieve → reason → retrieve 循环）
+    # 复用 search_agentic() 作单轮检索原语；scratchpad 只存压缩结论防 context 爆炸。
+    # -----------------------------------------------------------------------
+
+    def _compress_to_finding(self, sub_query: str, documents: list[dict]) -> str:
+        """把一轮检索结果压缩成 1-2 句带来源的结论，存入 scratchpad。
+
+        关键：scratchpad 存压缩结论而非原始 chunk，避免多轮累积 context 爆炸。
+        """
+        if not documents:
+            return f"（针对「{sub_query}」未检索到相关内容）"
+
+        docs_text = "\n\n".join(
+            f"[来源:{d.get('document_name','?')}] {d.get('text','')[:300]}"
+            for d in documents[:4]
+        )
+        prompt = ChatPromptTemplate.from_template(
+            "根据以下检索到的文档片段，针对子问题给出 1-2 句简洁结论，必须标注来源文档名。\n"
+            "若片段无法回答该子问题，如实说明「未找到」。\n\n"
+            "子问题: {sub_query}\n\n文档片段:\n{docs}\n\n"
+            "只输出结论（含来源），不要解释过程:"
+        )
+        chain = prompt | self.llm | StrOutputParser()
+
+        def _call():
+            return chain.invoke({"sub_query": sub_query, "docs": docs_text}).strip()
+
+        result = llm_call_with_reliability(
+            method_name="compress_finding",
+            circuit_breaker=self._cb_critique,  # 复用 critique 熔断器（同属检索后处理）
+            dlq=self._dlq,
+            fn=_call,
+            fallback=f"针对「{sub_query}」检索到 {len(documents)} 条片段（压缩失败，保留原始）",
+            query=sub_query,
+            context={"sub_query": sub_query, "doc_count": len(documents)},
+        )
+        return result
+
+    def _reason_next(self, original_query: str, scratchpad: dict) -> dict:
+        """IRCoT 推理：看已有中间结论，判断信息是否足够，不够则生成下一个子问题。
+
+        返回: {"sufficient": bool, "next_sub_question": str | None, "gap": str}
+        """
+        findings_text = "\n".join(f"- {f}" for f in scratchpad["intermediate_findings"]) or "（暂无）"
+        asked_text = "\n".join(f"- {q}" for q in scratchpad["sub_questions_asked"]) or "（暂无）"
+
+        prompt = ChatPromptTemplate.from_template(
+            "你在对本地知识库做多跳推理问答。请判断当前已收集的中间结论是否足以回答原始问题。\n\n"
+            "原始问题: {query}\n\n"
+            "已问过的子问题:\n{asked}\n\n"
+            "已收集的中间结论:\n{findings}\n\n"
+            "判断规则:\n"
+            "- 如果中间结论已足以完整回答原始问题，sufficient=true。\n"
+            "- 如果还缺关键信息，sufficient=false，并给出下一个应检索的子问题"
+            "（必须与已问过的不同，聚焦当前缺口）。\n"
+            "- gap 字段用一句话说明还缺什么。\n\n"
+            "严格只输出 JSON:\n"
+            '{{"sufficient": false, "next_sub_question": "...", "gap": "..."}}'
+        )
+        chain = prompt | self.llm | StrOutputParser()
+
+        def _call():
+            raw = chain.invoke({
+                "query": original_query,
+                "asked": asked_text,
+                "findings": findings_text,
+            }).strip()
+            m = re.search(r'\{.*\}', raw, re.DOTALL)
+            if not m:
+                raise ValueError(f"JSON 解析失败: {raw[:200]}")
+            data = json.loads(m.group(0))
+            nxt = data.get("next_sub_question") or None
+            return {
+                "sufficient": bool(data.get("sufficient", False)),
+                "next_sub_question": nxt,
+                "gap": data.get("gap", ""),
+            }
+
+        # 降级：推理失败时默认「已足够」，终止循环（避免带着坏状态空转）
+        fallback = {"sufficient": True, "next_sub_question": None, "gap": ""}
+        result = llm_call_with_reliability(
+            method_name="reason_next",
+            circuit_breaker=self._cb_crag,  # 复用 crag 熔断器（同属充分性推理）
+            dlq=self._dlq,
+            fn=_call,
+            fallback=fallback,
+            query=original_query,
+            context={"query": original_query, "iteration": len(scratchpad["sub_questions_asked"])},
+        )
+        return result if result is not None else fallback
+
+    def _synthesize(self, original_query: str, scratchpad: dict) -> str:
+        """基于 scratchpad 全部中间结论，综合成最终答案（带推理链和来源）。"""
+        findings_text = "\n".join(
+            f"{i+1}. {f}" for i, f in enumerate(scratchpad["intermediate_findings"])
+        ) or "（未收集到任何结论）"
+
+        prompt = ChatPromptTemplate.from_template(
+            "你是严谨的知识库问答助手。基于以下多轮检索得到的中间结论，综合回答原始问题。\n"
+            "要求：结论必须有据可依、标注来源；若证据不足以回答，如实说明缺口，不要编造。\n\n"
+            "原始问题: {query}\n\n"
+            "多轮检索的中间结论:\n{findings}\n\n"
+            "请给出结构化的最终回答（含关键依据与来源）:"
+        )
+        chain = prompt | self.llm | StrOutputParser()
+
+        def _call():
+            return chain.invoke({"query": original_query, "findings": findings_text}).strip()
+
+        result = llm_call_with_reliability(
+            method_name="synthesize",
+            circuit_breaker=self._cb_crag,
+            dlq=self._dlq,
+            fn=_call,
+            fallback="",  # 综合失败时返回空，由上层拼接原始结论兜底
+            query=original_query,
+            context={"query": original_query, "finding_count": len(scratchpad["intermediate_findings"])},
+        )
+        return result or findings_text  # 综合失败则直接返回中间结论列表
+
+    def search_iterative(self, query: str, top_k: int | None = None) -> dict:
+        """多轮推理检索：retrieve → reason → retrieve 循环，处理多跳复杂问题。
+
+        流程:
+          init scratchpad
+          loop (最多 RAG_MAX_ITERS 轮):
+            search_agentic(当前子问题)  → 复用单轮完整管线
+            _compress_to_finding()      → 压成结论存 scratchpad
+            _reason_next()              → 判断是否足够 / 生成下一子问题
+            三重终止判断
+          _synthesize()                 → 综合最终答案
+
+        返回: {"answer": str, "findings": [...], "iterations": int, "sources": [...]}
+        """
+        max_iters = config.RAG_MAX_ITERS
+        scratchpad = {
+            "sub_questions_asked": [],
+            "intermediate_findings": [],
+            "open_gaps": [],
+            "all_sources": [],
+        }
+
+        current_query = query
+        prev_gap = None
+        gap_unchanged_count = 0
+
+        for iteration in range(max_iters):
+            # ⑴ 单轮检索（复用现有完整管线）
+            docs = self.search_agentic(current_query, top_k=top_k)
+            scratchpad["sub_questions_asked"].append(current_query)
+
+            # 收集来源
+            for d in docs:
+                name = d.get("document_name", "")
+                if name and name not in scratchpad["all_sources"]:
+                    scratchpad["all_sources"].append(name)
+
+            # ⑵ 压缩成结论
+            finding = self._compress_to_finding(current_query, docs)
+            scratchpad["intermediate_findings"].append(finding)
+
+            # ⑶ 推理下一步
+            decision = self._reason_next(query, scratchpad)
+
+            # ⑷ 三重终止判断
+            if decision["sufficient"]:
+                break
+            if not decision["next_sub_question"]:
+                break  # 提不出新子问题
+            gap = decision.get("gap", "")
+            if gap and gap == prev_gap:
+                gap_unchanged_count += 1
+                if gap_unchanged_count >= 1:  # 连续 2 轮缺口没变 → 原地打转，停
+                    break
+            else:
+                gap_unchanged_count = 0
+            prev_gap = gap
+            scratchpad["open_gaps"].append(gap)
+            current_query = decision["next_sub_question"]
+
+        # ⑸ 综合最终答案
+        answer = self._synthesize(query, scratchpad)
+
+        return {
+            "answer": answer,
+            "findings": scratchpad["intermediate_findings"],
+            "iterations": len(scratchpad["sub_questions_asked"]),
+            "sources": scratchpad["all_sources"],
+        }
+
     def rerank(self, query: str, documents: list[dict]) -> list[dict]:
         if not documents:
             return []

@@ -40,6 +40,8 @@ RAG_CHUNK_SIZE = int(os.getenv("RAG_CHUNK_SIZE", "250"))
 RAG_CHUNK_OVERLAP = int(os.getenv("RAG_CHUNK_OVERLAP", "50"))
 RAG_INITIAL_TOP_K = int(os.getenv("RAG_INITIAL_TOP_K", "15"))
 RAG_TOP_K = int(os.getenv("RAG_TOP_K", "4"))
+# 多轮推理 RAG（IRCoT 式 retrieve-reason 循环）最大迭代轮数
+RAG_MAX_ITERS = int(os.getenv("RAG_MAX_ITERS", "4"))
 
 # Research (Multi-Agent 调研系统)
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
