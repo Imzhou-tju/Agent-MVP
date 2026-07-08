@@ -77,22 +77,38 @@ def rag_search(query: str, top_k: int = 4) -> list[dict]:
         return []
 
 
-async def hybrid_search(query: str, web_results: int = 5, rag_results: int = 3) -> list[dict]:
-    """联网 + RAG 混合检索，去重后合并。"""
+async def hybrid_search(
+    query: str,
+    web_results: int = 5,
+    rag_results: int = 3,
+    academic_results: int = 5,
+) -> list[dict]:
+    """学术源(MCP) + 联网(Tavily) + 本地 RAG 混合检索，去重后合并。
+
+    学术源经 research/academic.py 的 MCP 通道接入（arXiv 为主），
+    未启用（ACADEMIC_MCP_ENABLED=false）时自动返回空，不影响其余通道。
+    """
+    from .academic import academic_search
+
     web_task = asyncio.create_task(tavily_search(query, max_results=web_results))
+    academic_task = asyncio.create_task(academic_search(query, max_results=academic_results))
     # RAG 是同步的，在 executor 里跑
     loop = asyncio.get_event_loop()
     rag_task = loop.run_in_executor(None, rag_search, query, rag_results)
 
-    web, rag = await asyncio.gather(web_task, rag_task, return_exceptions=True)
+    academic, web, rag = await asyncio.gather(
+        academic_task, web_task, rag_task, return_exceptions=True
+    )
+    academic = academic if isinstance(academic, list) else []
     web = web if isinstance(web, list) else []
     rag = rag if isinstance(rag, list) else []
 
     seen_urls: set[str] = set()
     merged = []
-    for r in web + rag:
-        url = r.get("url", "")
-        if url not in seen_urls:
+    # 学术源优先（科研定位：论文证据权重高于普通网页）
+    for r in academic + web + rag:
+        url = r.get("url", "") or (r.get("title", "") + r.get("snippet", "")[:40])
+        if url and url not in seen_urls:
             seen_urls.add(url)
             merged.append(r)
     return merged

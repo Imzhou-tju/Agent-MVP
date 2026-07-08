@@ -13,6 +13,7 @@ from .sandbox_tools import (
 )
 from .rag_tools import search_knowledge_base, deep_query_knowledge_base, rebuild_knowledge_index
 from .research_tool import deep_research
+from .academic_tool import search_academic
 
 
 tasks_lock = threading.Lock()
@@ -291,4 +292,5 @@ BUILTIN_TOOLS = [
     deep_query_knowledge_base,
     rebuild_knowledge_index,
     deep_research,
+    search_academic,
 ]

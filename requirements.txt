@@ -26,3 +26,11 @@ langgraph-checkpoint-sqlite>=3.0.0
 
 # 工具支持
 pydantic>=2.0.0
+
+# 学术检索 MCP 接入（原生 MCP 客户端）
+langchain-mcp-adapters>=0.1.0
+# 学术 MCP server 用 uvx 按需拉起（需安装 uv：https://docs.astral.sh/uv/）
+# 常用：arxiv-mcp-server / semantic-scholar-mcp / pubmed-mcp-server
+
+# PDF 解析（MinerU 后端走官方 API，仅需 requests；PyPDF2 为默认/降级）
+requests>=2.31.0

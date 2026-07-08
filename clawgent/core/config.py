@@ -51,9 +51,22 @@ RAG_TOP_K = int(os.getenv("RAG_TOP_K", "4"))
 # 多轮推理 RAG（IRCoT 式 retrieve-reason 循环）最大迭代轮数
 RAG_MAX_ITERS = int(os.getenv("RAG_MAX_ITERS", "4"))
 
+# PDF 解析后端：pypdf2（默认/离线）| mineru（MinerU 官方 API，解析质量高）
+RAG_PDF_BACKEND = os.getenv("RAG_PDF_BACKEND", "pypdf2").lower()
+MINERU_API_KEY = os.getenv("MINERU_API_KEY", "")
+MINERU_API_BASE = os.getenv("MINERU_API_BASE", "https://mineru.net/api/v4")
+# MinerU 异步任务轮询上限（秒）
+MINERU_POLL_TIMEOUT = int(os.getenv("MINERU_POLL_TIMEOUT", "180"))
+
 # Research (Multi-Agent 调研系统)
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 RESEARCH_MAX_CONCURRENT = int(os.getenv("RESEARCH_MAX_CONCURRENT", "5"))
+
+# 学术检索 MCP servers（原生 MCP 接入）。为空则退化为无学术源。
+# 配置示例见 .env.example；键为 server 名，值为 langchain-mcp-adapters 的 connection dict。
+ACADEMIC_MCP_ENABLED = os.getenv("ACADEMIC_MCP_ENABLED", "false").lower() == "true"
+SEMANTIC_SCHOLAR_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
+PUBMED_API_KEY = os.getenv("PUBMED_API_KEY", "")
 
 for d in [WORKSPACE_DIR, MEMORY_DIR, PERSONAS_DIR, SCRIPTS_DIR, OFFICE_DIR, SKILLS_DIR, KB_UPLOAD_DIR, KB_INDEX_DIR]:
     os.makedirs(d, exist_ok=True)
