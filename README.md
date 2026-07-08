@@ -4,13 +4,6 @@
 
 ### **科研智能助手 · 可溯源的深度调研与知识库问答**
 
-[![Clawgent](https://img.shields.io/badge/Clawgent-1.0.0-purple.svg?logo=cyberpunk)](https://github.com/ttguy0707/Clawgent)
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
-[![LangGraph](https://img.shields.io/badge/LangGraph-1.x-blue.svg)](https://langchain-ai.github.io/langgraph/)
-[![LangChain](https://img.shields.io/badge/LangChain-1.x-blue.svg)](https://python.langchain.com/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![GitHub](https://img.shields.io/badge/GitHub-@ttguy0707-black.svg?logo=github)](https://github.com/ttguy0707)
-
 导航: [简介](#-简介) · [核心能力](#-核心能力) · [快速开始](#-快速开始) · [系统架构](#-系统架构) · [子系统详解](#-子系统详解) · [内置工具](#-内置工具) · [目录结构](#-目录结构)
 
 </div>
