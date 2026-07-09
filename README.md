@@ -45,7 +45,7 @@ Clawgent 是一个面向科研场景的智能体运行时，基于 **LangGraph**
 ### 1️⃣ 安装
 
 ```bash
-git clone https://github.com/ttguy0707/Clawgent.git
+git clone https://github.com/Imzhou-tju/Agent-MVP
 cd Clawgent
 
 python -m venv venv
