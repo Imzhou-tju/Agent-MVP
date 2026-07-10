@@ -41,6 +41,14 @@ def create_agent_app(
         raw_messages = state["messages"]
 
         if raw_messages:
+            # ── 审计事件③ tool_result ────────────────────────────────────────
+            # 工具执行由 LangGraph ToolNode 完成，agent_node 无法 hook 执行瞬间。
+            # 因此在"下一轮 agent_node 被调用时"回看末尾连续的 tool message 补记。
+            # 示例落盘行：
+            #   {"ts":"2026-07-09T08:12:05Z","thread_id":"local_geek_master",
+            #    "event":"tool_result","tool":"search_academic",
+            #    "result_summary":"[{\"title\":\"Mamba...\",\"url\":\"...\"}]"}
+            # 注意：result_summary 截断至 200 字符，完整结果已在 LangGraph 状态中。
             recent_tool_msgs = []
             for msg in reversed(raw_messages):
                 if msg.type == "tool":
@@ -51,8 +59,8 @@ def create_agent_app(
                 audit_logger.log_event(
                     thread_id=thread_id,
                     event="tool_result",
-                    tool = msg.name,
-                    result_summary = msg.content[:200]
+                    tool=msg.name,
+                    result_summary=msg.content[:200]
                 )
 
         current_summary = state.get("summary", "")
@@ -128,7 +136,12 @@ def create_agent_app(
             if isinstance(m.content, str):
                 m.content = m.content.encode('utf-8', 'ignore').decode('utf-8')
 
-        # 记录即将发送给发模型的消息 (监控Token)
+        # ── 审计事件① llm_input ─────────────────────────────────────────────
+        # 记录本轮打包发给模型的消息条数（System + 历史对话 + 工具结果）。
+        # 不记录消息内容（避免 JSONL 膨胀），只做 token 量监控用途。
+        # 示例落盘行：
+        #   {"ts":"2026-07-09T08:12:01Z","thread_id":"local_geek_master",
+        #    "event":"llm_input","message_count":6}
         audit_logger.log_event(
             thread_id=thread_id,
             event="llm_input",
@@ -137,8 +150,14 @@ def create_agent_app(
 
         response = llm_with_tools.invoke(msgs_for_llm)
 
-        # 解析大模型的回答并记录到日志
         if response.tool_calls:
+            # ── 审计事件② tool_call ──────────────────────────────────────────
+            # 模型决定调工具：逐个记录工具名和完整入参。
+            # 一次响应可能携带多个 tool_call（并发调用），逐条落盘。
+            # 示例落盘行：
+            #   {"ts":"2026-07-09T08:12:03Z","thread_id":"local_geek_master",
+            #    "event":"tool_call","tool":"search_academic",
+            #    "args":{"query":"Mamba SSM architecture","max_results":5}}
             for tool_call in response.tool_calls:
                 audit_logger.log_event(
                     thread_id=thread_id,
@@ -147,6 +166,11 @@ def create_agent_app(
                     args=tool_call["args"]
                 )
         elif response.content:
+            # ── 审计事件④ ai_message ─────────────────────────────────────────
+            # 模型直接回复用户（未调工具）：记录完整回复内容。
+            # 示例落盘行：
+            #   {"ts":"2026-07-09T08:12:09Z","thread_id":"local_geek_master",
+            #    "event":"ai_message","content":"Mamba 是一种基于选择性状态空间..."}
             audit_logger.log_event(
                 thread_id=thread_id,
                 event="ai_message",
