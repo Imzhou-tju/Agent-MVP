@@ -34,14 +34,12 @@ def _build_server_config() -> dict:
     """
     servers: dict = {}
 
-    # arXiv —— 前期主力，无需 key
+    # 数据源
     servers["arxiv"] = {
         "command": "uvx",
         "args": ["arxiv-mcp-server"],
         "transport": "stdio",
     }
-
-    # Semantic Scholar —— key 可选（有 key 提高速率上限）
     ss_env = {}
     if config.SEMANTIC_SCHOLAR_API_KEY:
         ss_env["SEMANTIC_SCHOLAR_API_KEY"] = config.SEMANTIC_SCHOLAR_API_KEY
@@ -51,8 +49,6 @@ def _build_server_config() -> dict:
         "transport": "stdio",
         "env": ss_env,
     }
-
-    # PubMed —— 生物医学，key 可选
     if config.PUBMED_API_KEY:
         servers["pubmed"] = {
             "command": "uvx",
