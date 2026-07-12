@@ -35,6 +35,12 @@ RAG_RERANKER_BASE_URL = os.getenv("RAG_RERANKER_BASE_URL", "https://api.siliconf
 RAG_LLM_MODEL = os.getenv("RAG_LLM_MODEL", "DeepSeek-V4-Flash")
 RAG_LLM_API_KEY = os.getenv("RAG_LLM_API_KEY", os.getenv("ANTHROPIC_API_KEY", ""))
 RAG_LLM_BASE_URL = os.getenv("RAG_LLM_BASE_URL", "https://www.sophnet.com/api/open-apis/v1")
+RAG_LLM_TEMPERATURE = float(os.getenv("RAG_LLM_TEMPERATURE", "0.7"))
+RAG_LLM_FORCE_JSON = os.getenv("RAG_LLM_FORCE_JSON", "true").lower() == "true"
+RAG_LLM_ESCALATION_MODEL = os.getenv("RAG_LLM_ESCALATION_MODEL", "")
+RAG_LLM_ESCALATION_API_KEY = os.getenv("RAG_LLM_ESCALATION_API_KEY", RAG_LLM_API_KEY)
+RAG_LLM_ESCALATION_BASE_URL = os.getenv("RAG_LLM_ESCALATION_BASE_URL", RAG_LLM_BASE_URL)
+RAG_LLM_ESCALATION_TEMPERATURE = float(os.getenv("RAG_LLM_ESCALATION_TEMPERATURE", "0"))
 
 # 父块→子切片两级分层切分
 RAG_PARENT_CHUNK_SIZE = int(os.getenv("RAG_PARENT_CHUNK_SIZE", "512"))

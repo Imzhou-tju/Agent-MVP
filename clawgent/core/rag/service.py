@@ -22,8 +22,33 @@ class KnowledgeBaseService:
             model=config.RAG_LLM_MODEL,
             api_key=config.RAG_LLM_API_KEY,
             base_url=config.RAG_LLM_BASE_URL,
-            temperature=0.7,
+            temperature=config.RAG_LLM_TEMPERATURE,
         )
+        # JSON 强约束模型：response_format=json_object 从源头杜绝非 JSON 输出，
+        # 用于所有需要解析结构化结果的内部判定调用（assess/critique/crag/reason）。
+        _json_kwargs = {"response_format": {"type": "json_object"}}
+        self.llm_json = ChatOpenAI(
+            model=config.RAG_LLM_MODEL,
+            api_key=config.RAG_LLM_API_KEY,
+            base_url=config.RAG_LLM_BASE_URL,
+            temperature=config.RAG_LLM_TEMPERATURE,
+            model_kwargs=_json_kwargs,
+        ) if config.RAG_LLM_FORCE_JSON else self.llm
+        # 升级模型：主模型重试耗尽/熔断时才用一次的更强兜底，未配置则为 None（不启用）
+        self.llm_escalation = ChatOpenAI(
+            model=config.RAG_LLM_ESCALATION_MODEL,
+            api_key=config.RAG_LLM_ESCALATION_API_KEY,
+            base_url=config.RAG_LLM_ESCALATION_BASE_URL,
+            temperature=config.RAG_LLM_ESCALATION_TEMPERATURE,
+            model_kwargs=_json_kwargs if config.RAG_LLM_FORCE_JSON else {},
+        ) if config.RAG_LLM_ESCALATION_MODEL else None
+        # 纯文本升级模型：给散文类调用（压缩结论/综合答案）兜底，不加 json 约束
+        self.llm_escalation_text = ChatOpenAI(
+            model=config.RAG_LLM_ESCALATION_MODEL,
+            api_key=config.RAG_LLM_ESCALATION_API_KEY,
+            base_url=config.RAG_LLM_ESCALATION_BASE_URL,
+            temperature=config.RAG_LLM_ESCALATION_TEMPERATURE,
+        ) if config.RAG_LLM_ESCALATION_MODEL else None
         # 同义词词典可选：放 workspace/knowledge_base/synonyms.json
         self.synonyms: dict = {}
         synonyms_path = self.upload_dir / "synonyms.json"
@@ -69,10 +94,8 @@ class KnowledgeBaseService:
             "严格只输出如下 JSON，不要任何解释:\n"
             '{{"expand": false, "decompose": false, "sub_queries": []}}'
         )
-        chain = prompt | self.llm | StrOutputParser()
-
-        def _call():
-            raw = chain.invoke({"query": query}).strip()
+        def _call(llm):
+            raw = (prompt | llm | StrOutputParser()).invoke({"query": query}).strip()
             m = re.search(r'\{.*\}', raw, re.DOTALL)
             if not m:
                 raise ValueError(f"JSON 解析失败，原始输出: {raw[:200]}")
@@ -89,7 +112,8 @@ class KnowledgeBaseService:
             method_name="assess_query",
             circuit_breaker=self._cb_assess,
             dlq=self._dlq,
-            fn=_call,
+            fn=lambda: _call(self.llm_json),
+            stronger_fn=(lambda: _call(self.llm_escalation)) if self.llm_escalation else None,
             fallback=fallback,
             query=query,
             context={"query": query},
@@ -176,10 +200,8 @@ class KnowledgeBaseService:
             "严格只输出 JSON 数组，不要解释:\n"
             '[{{"index": 0, "relevant": true}}, ...]'
         )
-        chain = prompt | self.llm | StrOutputParser()
-
-        def _call():
-            raw = chain.invoke({"query": query, "docs": docs_text}).strip()
+        def _call(llm):
+            raw = (prompt | llm | StrOutputParser()).invoke({"query": query, "docs": docs_text}).strip()
             m = re.search(r'\[.*\]', raw, re.DOTALL)
             if not m:
                 raise ValueError(f"JSON 数组解析失败，原始输出: {raw[:200]}")
@@ -192,7 +214,8 @@ class KnowledgeBaseService:
             method_name="critique_docs",
             circuit_breaker=self._cb_critique,
             dlq=self._dlq,
-            fn=_call,
+            fn=lambda: _call(self.llm_json),
+            stronger_fn=(lambda: _call(self.llm_escalation)) if self.llm_escalation else None,
             fallback=None,
             query=query,
             context={"query": query, "doc_count": len(documents)},
@@ -223,10 +246,8 @@ class KnowledgeBaseService:
             "严格只输出 JSON，不要解释:\n"
             '{{"sufficient": true, "rewrite_query": null}}'
         )
-        chain = prompt | self.llm | StrOutputParser()
-
-        def _call():
-            raw = chain.invoke({"query": query, "docs": docs_text}).strip()
+        def _call(llm):
+            raw = (prompt | llm | StrOutputParser()).invoke({"query": query, "docs": docs_text}).strip()
             m = re.search(r'\{.*\}', raw, re.DOTALL)
             if not m:
                 raise ValueError(f"JSON 解析失败，原始输出: {raw[:200]}")
@@ -241,7 +262,8 @@ class KnowledgeBaseService:
             method_name="crag_gate",
             circuit_breaker=self._cb_crag,
             dlq=self._dlq,
-            fn=_call,
+            fn=lambda: _call(self.llm_json),
+            stronger_fn=(lambda: _call(self.llm_escalation)) if self.llm_escalation else None,
             fallback=fallback,
             query=query,
             context={"query": query, "doc_count": len(documents)},
@@ -306,16 +328,17 @@ class KnowledgeBaseService:
             "子问题: {sub_query}\n\n文档片段:\n{docs}\n\n"
             "只输出结论（含来源），不要解释过程:"
         )
-        chain = prompt | self.llm | StrOutputParser()
-
-        def _call():
-            return chain.invoke({"sub_query": sub_query, "docs": docs_text}).strip()
+        def _call(llm):
+            return (prompt | llm | StrOutputParser()).invoke(
+                {"sub_query": sub_query, "docs": docs_text}
+            ).strip()
 
         result = llm_call_with_reliability(
             method_name="compress_finding",
             circuit_breaker=self._cb_critique,  # 复用 critique 熔断器（同属检索后处理）
             dlq=self._dlq,
-            fn=_call,
+            fn=lambda: _call(self.llm),
+            stronger_fn=(lambda: _call(self.llm_escalation_text)) if self.llm_escalation_text else None,
             fallback=f"针对「{sub_query}」检索到 {len(documents)} 条片段（压缩失败，保留原始）",
             query=sub_query,
             context={"sub_query": sub_query, "doc_count": len(documents)},
@@ -343,10 +366,8 @@ class KnowledgeBaseService:
             "严格只输出 JSON:\n"
             '{{"sufficient": false, "next_sub_question": "...", "gap": "..."}}'
         )
-        chain = prompt | self.llm | StrOutputParser()
-
-        def _call():
-            raw = chain.invoke({
+        def _call(llm):
+            raw = (prompt | llm | StrOutputParser()).invoke({
                 "query": original_query,
                 "asked": asked_text,
                 "findings": findings_text,
@@ -368,7 +389,8 @@ class KnowledgeBaseService:
             method_name="reason_next",
             circuit_breaker=self._cb_crag,  # 复用 crag 熔断器（同属充分性推理）
             dlq=self._dlq,
-            fn=_call,
+            fn=lambda: _call(self.llm_json),
+            stronger_fn=(lambda: _call(self.llm_escalation)) if self.llm_escalation else None,
             fallback=fallback,
             query=original_query,
             context={"query": original_query, "iteration": len(scratchpad["sub_questions_asked"])},
@@ -388,16 +410,17 @@ class KnowledgeBaseService:
             "多轮检索的中间结论:\n{findings}\n\n"
             "请给出结构化的最终回答（含关键依据与来源）:"
         )
-        chain = prompt | self.llm | StrOutputParser()
-
-        def _call():
-            return chain.invoke({"query": original_query, "findings": findings_text}).strip()
+        def _call(llm):
+            return (prompt | llm | StrOutputParser()).invoke(
+                {"query": original_query, "findings": findings_text}
+            ).strip()
 
         result = llm_call_with_reliability(
             method_name="synthesize",
             circuit_breaker=self._cb_crag,
             dlq=self._dlq,
-            fn=_call,
+            fn=lambda: _call(self.llm),
+            stronger_fn=(lambda: _call(self.llm_escalation_text)) if self.llm_escalation_text else None,
             fallback="",  # 综合失败时返回空，由上层拼接原始结论兜底
             query=original_query,
             context={"query": original_query, "finding_count": len(scratchpad["intermediate_findings"])},

@@ -188,14 +188,24 @@ def llm_call_with_reliability(
     query: str = "",
     context: dict | None = None,
     max_retries: int = 2,
+    stronger_fn: Callable[[], Any] | None = None,
 ) -> Any:
-    """统一的可靠性包装器：retry → 熔断记录 → 死信入队 → 降级返回。
+    """统一的可靠性包装器：retry → 升级模型兜底 → 熔断记录 → 死信入队 → 降级返回。
 
-    fn 是无参数的 callable，内部 close over 了真正的参数。
+    fn / stronger_fn 都是无参 callable，内部 close over 了真正的参数。
+    stronger_fn 用更强模型执行同一逻辑，仅在主模型失败或熔断时才调用一次。
     fallback 是降级返回值（如 None 或空 list）。
     """
+    # 熔断打开：跳过主模型，但仍给升级模型一次机会，都不行才降级
     if circuit_breaker.is_open():
-        print(f"[Reliability] {method_name} 熔断中，直接降级")
+        print(f"[Reliability] {method_name} 熔断中，跳过主模型")
+        if stronger_fn is not None:
+            try:
+                result = stronger_fn()
+                print(f"[Reliability] {method_name} 熔断期升级模型兜底成功")
+                return result
+            except Exception as e:
+                print(f"[Reliability] {method_name} 熔断期升级模型失败: {e}")
         return fallback
 
     last_error: Exception | None = None
@@ -208,8 +218,18 @@ def llm_call_with_reliability(
             last_error = e
             print(f"[Reliability] {method_name} 第 {attempt}/{max_retries} 次失败: {e}")
 
-    # 所有重试耗尽
+    # 主模型重试耗尽：先记一次失败推动熔断，再用升级模型赌一次
+    # 注意：升级成功不 record_success，主模型的失败照常累计，该跳闸就跳闸
     circuit_breaker.record_failure()
+    if stronger_fn is not None:
+        try:
+            result = stronger_fn()
+            print(f"[Reliability] {method_name} 升级模型兜底成功")
+            return result
+        except Exception as e:
+            last_error = e
+            print(f"[Reliability] {method_name} 升级模型仍失败: {e}")
+
     dlq.enqueue(
         method=method_name,
         query=query,
