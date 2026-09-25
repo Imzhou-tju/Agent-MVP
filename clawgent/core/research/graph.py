@@ -21,7 +21,8 @@ def build_research_graph() -> StateGraph:
 
     架构决策（基于调研验证结论）：
     - Send API fan-out：Planner → Command(goto=list[Send]) → 并发 Researcher
-    - reducer 必须声明：evidences/revision_evidences 字段用 Annotated[list, operator.add]
+    - reducer 必须声明：仅 evidences/raw_search_results 用 Annotated[list, operator.add]（Send fan-out 并发写入）。
+      revision_evidences 刻意不加 reducer —— revision 是单实例，且 judge 需靠覆盖语义清空上一轮补充证据
     - RetryPolicy：挂在 researcher/revision 节点，处理 LLM/网络瞬态失败
     - 终止条件：Judge 用 Command 条件路由（非 recursion_limit，调研否定了该参数）
     - 多 Agent 路径只支持 Tavily（调研已验证）
