@@ -27,39 +27,65 @@ def deep_research(query: str, context: str = "", max_revisions: int = 2) -> str:
     max_revisions (int): 最大评审补充轮次，默认 2，越高越深入但耗时越长。
 
     返回:
-    结构化 Markdown 研究报告，包含执行摘要、各角度发现、结论建议和参考来源。
+    结构化 Markdown 研究报告，包含执行摘要、分主题发现、矛盾与局限、结论建议和参考来源。
+    报告中的每个结论带有引用标记，标记在文末参考来源里有对应的来源条目。
     """
     graph = _get_graph()
     initial_state = {
         "original_query": query,
         "research_context": context,
         "max_revisions": max_revisions,
+        "tasks": [],
+        "round_no": 0,
+        "task_results": [],
+        "sources": [],
         "evidences": [],
-        "raw_search_results": [],
-        "revision_evidences": [],
-        "revision_count": 0,
+        "claims": [],
+        "relations": [],
+        "issues": [],
+        "repaired_issue_ids": [],
+        "searched_queries": [],
+        "source_texts": {},
+        "ledger_events": [],
     }
     try:
         # 子图是异步图，在同步 tool 里运行
+        # recursion_limit 需要覆盖：DAG 分批调度（每批 scheduler+researcher）
+        # + 每轮 repair（review+repair+judge+scheduler+researcher）
         result = asyncio.run(
             graph.ainvoke(
                 initial_state,
-                config={"recursion_limit": 50},
+                config={"recursion_limit": 100},
             )
         )
         report = result.get("final_report", "")
-        confidence = result.get("confidence_score", 0.0)
-        verdict = result.get("judge_verdict", "unknown")
-        plan = result.get("research_plan_summary", "")
-        evidence_count = len(result.get("deduped_evidences", []))
+        support = result.get("evidence_support", {}) or {}
+        verdict = result.get("verdict", "unknown")
+        reason = result.get("verdict_reason", "")
+        plan = result.get("plan_summary", "")
+        tasks = result.get("tasks", [])
+        done_tasks = sum(1 for t in tasks if t.get("status") == "DONE")
 
+        ev_by_status = support.get("evidence_by_status", {}) or {}
         header = (
             f"## 调研完成\n"
             f"- 问题：{query}\n"
             f"- 计划：{plan}\n"
-            f"- 证据数：{evidence_count} 条\n"
-            f"- 质量评级：{verdict}（置信度 {confidence:.0%}）\n\n"
+            f"- 任务：{done_tasks}/{len(tasks)} 完成（第 {result.get('round_no', 0)} 轮）\n"
+            f"- 证据：{support.get('evidence_total', 0)} 条，"
+            f"通过原文校验 {ev_by_status.get('VERIFIED', 0)} 条，"
+            f"部分匹配 {ev_by_status.get('PARTIAL', 0)} 条，"
+            f"未通过 {ev_by_status.get('INVALID', 0)} 条\n"
+            f"- 声明：{support.get('claim_total', 0)} 条，可用 {support.get('usable_claims', 0)} 条\n"
+            f"- 裁决：{verdict}（{reason}）\n"
         )
+        issues = result.get("citation_issues", []) or []
+        if issues:
+            header += "- 引用校验问题：" + "；".join(
+                f"{i.get('ref','')} {i.get('detail','')}" for i in issues[:5]
+            ) + "\n"
+
+        header += "\n"
         return header + report if report else header + "（报告生成失败，请检查 LLM 配置）"
     except Exception as e:
         return f"深度调研执行失败：{e}（请检查 TAVILY_API_KEY 和 RAG_LLM_API_KEY 配置）"

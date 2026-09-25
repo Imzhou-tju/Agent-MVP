@@ -6,57 +6,63 @@ from langgraph.types import RetryPolicy
 from .nodes import (
     aggregator_node,
     compiler_node,
-    critic_node,
     judge_node,
     planner_node,
+    repair_node,
     researcher_node,
-    revision_node,
+    review_node,
+    scheduler_node,
 )
 from .state import ResearchStateDict
 
 
 def build_research_graph() -> StateGraph:
-    """
-    构建 Multi-Agent 调研子图。
+    """构建以 Research Task DAG 为调度骨架的调研子图。
 
-    架构决策（基于调研验证结论）：
-    - Send API fan-out：Planner → Command(goto=list[Send]) → 并发 Researcher
-    - reducer 必须声明：仅 evidences/raw_search_results 用 Annotated[list, operator.add]（Send fan-out 并发写入）。
-      revision_evidences 刻意不加 reducer —— revision 是单实例，且 judge 需靠覆盖语义清空上一轮补充证据
-    - RetryPolicy：挂在 researcher/revision 节点，处理 LLM/网络瞬态失败
-    - 终止条件：Judge 用 Command 条件路由（非 recursion_limit，调研否定了该参数）
-    - 多 Agent 路径只支持 Tavily（调研已验证）
+    与旧版图结构的差别：
 
-    图结构：
-        START → planner → [Send fan-out] → researcher(×N) → aggregator
-              → critic → revision → judge → compiler → END
-                           ↑__________________________|（最多 max_revisions 次）
+    旧版：planner → Send 全部子任务 → researcher → aggregator → critic → revision
+          → judge →（回到 critic）→ compiler
+    新版：planner → scheduler ⇄ researcher（按依赖分批）→ aggregator → review
+          → repair → judge →（回到 scheduler 做局部补查）→ compiler
+
+    关键变化：
+    1. 任务不再一次性全部并发：scheduler 只 Send 依赖已满足的 READY 任务，
+       任务完成后回到 scheduler 再放下一批（依赖驱动的分批执行）。
+    2. 补检索不再是"critic 生成 query → revision 再搜一遍"的全局重跑，
+       而是 review 产出结构化问题 → repair 局部新增/重开 DAG 任务 → 只补这些任务。
+    3. Judge 不再用启发式公式计算置信度，只做终止裁决（COMPILE / REVISE /
+       ABORT_WITH_LIMITATIONS），裁决依据是"还有没有可执行的任务"与"有没有可用声明"。
+
+    reducer：Researcher 通过 Send 并发执行，所有被并发写入的字段都在 state.py 里
+    声明了语义化 reducer（按 id 合并），不再使用 operator.add 追加。
+
+    终止条件由 Judge 的 Command 路由控制，不依赖 recursion_limit 触发。
     """
     graph = StateGraph(ResearchStateDict)
 
-    # RetryPolicy：LLM 调用瞬态失败重试（调研验证的官方推荐机制）
     llm_retry = RetryPolicy(max_attempts=3, backoff_factor=0.5)
     net_retry = RetryPolicy(max_attempts=2, backoff_factor=1.0)
 
-    graph.add_node("planner", planner_node, retry=llm_retry)
-    # researcher 是异步节点，并发执行（Send fan-out 的 worker）
-    graph.add_node("researcher", researcher_node, retry=net_retry)
-    graph.add_node("aggregator", aggregator_node, retry=llm_retry)
-    graph.add_node("critic", critic_node, retry=llm_retry)
-    graph.add_node("revision", revision_node, retry=net_retry)
-    # judge 用 Command 路由，不需要 add_edge
-    graph.add_node("judge", judge_node, retry=llm_retry)
-    graph.add_node("compiler", compiler_node, retry=llm_retry)
+    graph.add_node("planner", planner_node, retry_policy=llm_retry)
+    # scheduler 是纯确定性节点，不调用模型，不需要重试
+    graph.add_node("scheduler", scheduler_node)
+    graph.add_node("researcher", researcher_node, retry_policy=net_retry)
+    graph.add_node("aggregator", aggregator_node)
+    graph.add_node("review", review_node, retry_policy=llm_retry)
+    graph.add_node("repair", repair_node)
+    graph.add_node("judge", judge_node)
+    graph.add_node("compiler", compiler_node, retry_policy=llm_retry)
 
-    # 固定边
     graph.add_edge(START, "planner")
-    # planner → researcher：由 planner_node 返回的 Command(goto=list[Send]) 驱动，无需 add_edge
-    # researcher → aggregator：所有 Send worker 完成后汇聚
-    graph.add_edge("researcher", "aggregator")
-    graph.add_edge("aggregator", "critic")
-    graph.add_edge("critic", "revision")
-    graph.add_edge("revision", "judge")
-    # judge → critic 或 judge → compiler：由 judge_node 返回的 Command 决定，无需 add_conditional_edges
+    graph.add_edge("planner", "scheduler")
+    # scheduler → researcher：由 scheduler_node 的 Command(goto=list[Send]) 驱动
+    # researcher → scheduler：一批任务跑完后回到调度器，放下一批依赖已满足的任务
+    graph.add_edge("researcher", "scheduler")
+    graph.add_edge("aggregator", "review")
+    graph.add_edge("review", "repair")
+    graph.add_edge("repair", "judge")
+    # judge → scheduler（REVISE）或 judge → compiler（COMPILE / ABORT）由 Command 决定
     graph.add_edge("compiler", END)
 
     return graph.compile()

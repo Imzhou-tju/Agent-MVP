@@ -1,6 +1,8 @@
 # 多智能体深度调研系统
 
-> `clawgent/core/research/` — LangGraph 子图，7 个节点协作完成从问题拆解到结构化报告的全流程。
+> `clawgent/core/research/` — LangGraph 子图，8 个节点协作完成从问题拆解到带引用报告的全流程。
+>
+> 调度骨架是 **Research Task DAG**，核心状态是 **Evidence**，核心数据结构是 **Claim-Evidence 关系**。
 
 ---
 
@@ -12,65 +14,89 @@
 用户问题
     │
     ▼
-【Planner】拆题 → 3-6 个子任务（各含 2-3 条检索词）
+【Planner】拆题 → 3-6 个研究任务 + 任务间依赖（DAG）
     │
-    │ Send API fan-out
-    ├──────────────────────────────────────┐
-    ▼              ▼              ▼        ▼
-【Researcher】  【Researcher】  【Researcher】...  ← 并发，每个子任务独立实例
-  hybrid_search   hybrid_search   hybrid_search
-  抽 claim+URL    抽 claim+URL    抽 claim+URL
+    ▼
+【Scheduler】（不调用模型）
+ 挑出依赖已满足的 READY 任务
+    │ Send API fan-out（只发这一批）
+    ├──────────────┬──────────────┐
+    ▼              ▼              ▼
+【Researcher】  【Researcher】  【Researcher】  ← 并发，每个任务独立实例
+  检索 → 登记来源 → 抽 claim + quote → 原文定位校验
     │              │              │
     └──────────────┴──────────────┘
-                   │ operator.add 自动合并
+                   │ 返回 ResearchPacket，按 id 合并
                    ▼
-           【Aggregator】去重，建 claim→URL 映射
+            回到【Scheduler】放下一批依赖已满足的任务
+                   │ 没有 READY 任务
+                   ▼
+        【Aggregator】（不调用模型）
+         按证据校验状态推导每条 Claim 的支撑状态
                    │
                    ▼
-            【Critic】红队挑刺
-            找 missing_evidence / factual_conflict / logic_gap
+             【Review】结构化评审（7 类问题）
                    │
                    ▼
-           【Revision】补充检索（针对 high/medium 级问题）
+        【Repair】（不调用模型）
+         按问题局部新增/重开 DAG 任务，不重建整棵树
                    │
                    ▼
-             【Judge】裁决
-             ┌─────┴─────┐
-         未达标          达标
-         revision_count+1  │
-             │            ▼
-         回 Critic    【Compiler】写报告
-                          │
-                          ▼
-                    Markdown 报告（含引用）
+             【Judge】（不调用模型）
+        ┌──────────┼──────────────┐
+     REVISE      COMPILE      ABORT_WITH_LIMITATIONS
+        │            │              │
+   回 Scheduler      └──────┬───────┘
+                            ▼
+                     【Compiler】写报告
+                       引用目录 + 引用校验 + 参考来源渲染
+                            │
+                            ▼
+                     Markdown 报告（带 [S1]/[E3] 引用标记）
 ```
 
 ---
 
 ## 节点详解
 
-### Planner（`nodes.py:38`）
+### Planner（`nodes.py`）
 
-将原始问题拆成 3-6 个独立子任务，每个任务对应一个调研角度（现状、趋势、案例、风险、对比等）。
+把原始问题拆成 3-6 个研究任务，并声明任务之间的依赖。依赖只在确实需要前序结论时才声明。
 
 ```python
 # 输出结构示例
 [
-  {"task_id": "t1", "question": "Mamba的核心原理是什么？",
-   "angle": "技术原理", "search_queries": ["Mamba SSM architecture", "selective state space"]},
-  {"task_id": "t2", "question": "与Transformer相比优势在哪？",
-   "angle": "对比分析", "search_queries": ["Mamba vs Transformer", "linear attention comparison"]},
-  ...
+  {"task_id": "t1", "objective": "搞清楚 Mamba 的核心机制",
+   "question": "Mamba 选择性状态空间机制原理", "task_type": "FACT",
+   "expected_evidence": "论文给出的复杂度结论", "dependencies": []},
+  {"task_id": "t2", "objective": "与 Transformer 对比",
+   "question": "Mamba 与 Transformer 长序列推理吞吐对比",
+   "task_type": "COMPARISON", "dependencies": ["t1"]},
 ]
 ```
 
-通过 `Command(goto=[Send("researcher", task), ...])` 实现 fan-out，LangGraph 并发调度所有 Researcher。
+`task_type` 取值：`FACT | METHOD | RESULT | COMPARISON | LIMITATION | TREND | INTERPRETATION | HYPOTHESIS`。
+
+依赖指向未声明的任务时直接丢弃该依赖，避免整张图失效；新增任务由 `dag.TaskDAG.add_task` 校验重复 id、自依赖、依赖缺失与成环。
 
 ---
 
-### Researcher（`nodes.py:92`）
+### Scheduler（`nodes.py`）
 
-每个子任务对应一个独立 Researcher 实例，做两件事：
+不调用模型。按 `dag.TaskDAG` 做确定性调度：
+
+1. `refresh()`：依赖全部 DONE → `READY`；否则 → `BLOCKED`
+2. `ready_tasks()`：按 priority 排序后返回 READY 任务
+3. 标记为 `RUNNING`，用 `Command(goto=[Send("researcher", ...)])` 只发这一批
+
+任务状态：`PENDING / READY / RUNNING / DONE / FAILED / BLOCKED / REOPENED`。
+依赖任务 FAILED 时，下游保持 BLOCKED，不再被调度。
+
+---
+
+### Researcher（`nodes.py`）
+
+每个任务一个独立实例，返回 `ResearchPacket`，不直接改写全局结论。
 
 **1. 三路混合检索（`search.py: hybrid_search`）**
 
@@ -81,116 +107,134 @@ Tavily 联网搜索                                ──┼──▶ asyncio.ga
 学术结果排前
 ```
 
-**2. LLM 抽 claim 级证据**
+**2. 登记来源（`evidence.py: SourceRegistry`）**
 
-从检索结果里提取 3-6 条具体可验证的事实声明，每条必须绑定来源 URL：
+每条检索结果登记为 `Source`，`source_id` 由内容哈希生成（`stable_id`），因此并发分支对同一 URL 会得到同一个 id，合并后不会重复登记。去重键优先级：`url > doi > title+source_type`。
 
-```python
-{
-    "claim": "Mamba 使用选择性状态空间模型，线性时间复杂度 O(n)",
-    "relevance": 0.92,
-    "source": {
-        "url": "https://arxiv.org/abs/2312.00752",
-        "title": "Mamba: Linear-Time Sequence Modeling...",
-        "snippet": "原文片段..."
-    }
-}
-```
+**3. 抽取 claim 与 quote，并做原文定位校验（`evidence.py: EvidenceVerifier`）**
 
-**并发写入不冲突**：`state.py` 声明 `evidences: Annotated[list[dict], operator.add]`，LangGraph 用 `operator.add` reducer 自动追加合并，多个 Researcher 同时写入不会互相覆盖。
+模型输出每条 claim 必须携带 `quote`（逐字来自检索正文的引文）。程序按以下规则判定：
 
----
+| 判定 | 条件 |
+|------|------|
+| `VERIFIED` | quote 归一化后完整出现在来源正文中 |
+| `PARTIAL` | 最长公共片段占 quote 长度的比例 ≥ 0.6 |
+| `INVALID` | source_id 未登记 / quote 过短（<8 字符）/ locator 与 chunk_id 不一致 / 无法定位 |
+| `UNVERIFIED` | 缺少来源正文，无法判定 |
 
-### Aggregator（`nodes.py:167`）
-
-对所有 Researcher 输出的 claim 去重（按 claim 前 80 字符），建立 `claim → 来源列表` 的映射表。
+**它不做什么**：校验只能比对"本次检索拿到的正文"。网页来源拿到的是搜索结果摘要而不是整页正文，`UNVERIFIED`/`INVALID` 只说明"在拿到的这段文本里定位不到"，不等于该说法在原文里不存在。本地知识库来源带 `chunk_id`，可以定位到具体切片（`locator = chunk:xxx`）。
 
 ---
 
-### Critic（`nodes.py:195`）
+### Aggregator（`nodes.py`）
 
-扮演"红队审查员"，检查三类问题：
+不调用模型。做两件确定性工作：
 
-| 问题类型 | 说明 | 示例 |
-|---------|------|------|
-| `missing_evidence` | 关键角度没有覆盖 | "缺少性能基准测试数据" |
-| `factual_conflict` | 两条 claim 互相矛盾 | "A说推理速度快，B说推理速度慢" |
-| `logic_gap` | 推理有跳跃 | "从原理直接跳到结论，缺中间步骤" |
+1. 合并各任务返回的 claim / evidence / relation（按 id 合并，见下文 reducer）
+2. `ClaimGraph.recompute_statuses()` 按证据校验结果推导每条 Claim 的支撑状态：
 
-只保留 `high / medium` 级问题（`low` 级忽略），针对 `missing_evidence` 类生成补充检索词（最多 3 条）。
+| Claim 状态 | 判定规则 |
+|-----------|---------|
+| `SUPPORTED` | 至少 1 条 VERIFIED，无 INVALID、无缺失 |
+| `PARTIALLY_SUPPORTED` | 至少 1 条 VERIFIED/PARTIAL，但存在 INVALID 或缺失 |
+| `CONTRADICTED` | 存在 CONTRADICTS 关系 |
+| `UNSUPPORTED` | 无关联证据，或证据全部不可用 |
 
----
-
-### Revision（`nodes.py:244`）
-
-拿 Critic 给出的补充检索词，再跑一遍 `hybrid_search`，LLM 从结果里抽 2-4 条新 claim，写入 `revision_evidences`（同样用 `operator.add`）。
-
-如果补查什么都没找到，直接返回空列表——Judge 会识别到"无新增"并终止循环。
+Claim 的支撑状态不由模型自评，也不再由启发式公式计算。原实现里的
+`confidence_score = 0.5 + 0.1*证据数 - 0.2*严重问题数` 已删除——这个数值与证据是否被校验通过无关。
 
 ---
 
-### Judge（`nodes.py:305`）
+### Review（`nodes.py`）
 
-**三重终止条件**，满足任一即出报告：
+评审当前研究状态，输出结构化问题清单。问题类型：
 
-```python
-should_compile = (
-    len(high_issues) == 0          # ① Critic 没有发现严重问题
-    or revision_count >= max_revisions  # ② 已达最大补查轮次（默认 2）
-    # ③ 隐含：Revision 返回空 → revision_evidences 为空 → Judge 发现无新增
-)
-```
+| 类型 | 说明 |
+|------|------|
+| `MISSING_EVIDENCE` | 声明缺少证据 |
+| `UNSUPPORTED_CLAIM` | 声明的证据未通过原文校验 |
+| `CONFLICT` | 证据之间存在矛盾 |
+| `COVERAGE_GAP` | 研究问题有未被覆盖的方面 |
+| `SOURCE_QUALITY` | 来源质量不足 |
+| `OUTDATED_SOURCE` | 来源过旧 |
+| `LOGIC_GAP` | 从证据到结论的推理跳跃 |
 
-不满足则 `revision_count += 1`，`Command(goto="critic")` 回到 Critic 再来一轮。
-
-**置信度计算**：
-
-```python
-confidence = max(0.3, min(1.0,
-    0.5 + 0.1 * len(all_evidences) - 0.2 * len(high_issues)
-))
-```
-
-- 每增加一条证据 +0.1
-- 每个严重问题 -0.2
-- 下限 0.3（不会给出"100% 可信"）
+每个问题带 `severity`、`target_type/target_id`（作用于哪条声明或哪个任务）与 `suggested_action`（`add_task` / `reopen_task` / `none`）。`issue_id` 由 `(类型, 目标, 描述)` 哈希得到，下一轮重复提出同一问题时 id 相同。
 
 ---
 
-### Compiler（`nodes.py:347`）
+### Repair（`nodes.py`）
 
-把所有证据按子任务分组，生成完整 Markdown 报告：
+不调用模型。按问题清单局部修改 DAG：
 
-```markdown
-## 执行摘要
-...（3-5 句话）
+- `add_task`：新增任务，单轮上限 `MAX_REPAIR_TASKS = 3`
+- `reopen_task`：`dag.reopen()` 重开任务，并把它的下游标记为 REOPENED（影响局部化）
 
-## [各角度分节发现]
-- 关键结论 [来源: https://arxiv.org/...]
-- ...
-
-## 结论与建议
-...
-
-## 参考来源
-- https://arxiv.org/...
-- ...
-```
-
-报告头部附置信度（`pass / partial`），`partial` 表示仍有未解决的 high 级问题，用户可自行判断是否需要进一步核查。
+只处理 `high/medium` 级问题，且同一个 `issue_id` 只处理一次（`repaired_issue_ids`）。非法结构由 `TaskDAG.add_task` 拒绝，不重建整棵任务树。
 
 ---
 
-## 可靠性保障
+### Judge（`nodes.py`）
 
-| 机制 | 位置 | 作用 |
-|------|------|------|
-| 学术源优先 | `search.py` | arXiv/S2/PubMed 优先于普通网页 |
-| claim 强制绑 URL | `nodes.py:140` | 每条结论可溯源，无 URL 则明显留空 |
-| Critic 红队 | `nodes.py:195` | 独立视角交叉验证，找矛盾和缺漏 |
-| 三重终止 | `nodes.py:319` | 防死循环，最多 2 轮补查 |
-| `return_exceptions=True` | `search.py` | 任一检索源失败不影响其他路 |
-| 保守置信度 | `nodes.py:322` | 下限 0.3，不虚报可信度 |
+不调用模型，只做终止裁决：
+
+| 裁决 | 触发条件 |
+|------|---------|
+| `REVISE` | DAG 里存在 READY 任务，且未达到 `max_revisions` |
+| `COMPILE` | 无可执行任务，且存在可用声明（SUPPORTED / PARTIALLY_SUPPORTED） |
+| `ABORT_WITH_LIMITATIONS` | 无可执行任务，且没有任何可用声明 |
+
+裁决依据只有两件事：**还有没有可执行的任务**、**有没有通过校验的可用声明**。
+达到轮次上限但仍有任务没跑完时，按 COMPILE 出报告，并在报告末尾列出未完成任务。
+
+---
+
+### Compiler（`nodes.py`）
+
+1. 建立 `SourceCatalog`：把 `source_id / evidence_id` 编成 `[S1] / [E3]` 短编号，模型只用编号引用，不需要抄写 URL
+2. 模型按编号写报告
+3. `CitationVerifier` 校验：编号是否存在、引用的证据是否通过校验、可用声明是否被引用
+4. 校验出 `unknown_ref` / `unverified_evidence` 时，把问题清单反馈给模型重跑一次（最多 1 次）
+5. 程序追加"参考来源"列表与"本报告局限"小节
+
+局限小节由程序生成，内容包括：未完成任务数量与 id、未通过校验的证据条数、可用声明不足提示。
+
+---
+
+## 状态与并发合并（`state.py`）
+
+Researcher 通过 `Send` 并发执行，被并发写入的字段必须声明 reducer。
+旧实现统一用 `operator.add`（列表追加），多个任务引用同一来源时会产生重复登记；
+现改为按 id 合并的语义化 reducer：
+
+| 字段 | reducer | 合并规则 |
+|------|---------|---------|
+| `sources` | `merge_sources` | 按 `source_id` 合并，只补齐空字段 |
+| `evidences` | `merge_evidences` | 按 `evidence_id` 合并 |
+| `claims` | `merge_claims` | 按 `claim_id` 合并，`evidence_ids` 取并集 |
+| `relations` | `merge_relations` | 按 `(source_id, target_id, relation)` 去重 |
+| `task_results` | `merge_task_results` | 按 `task_id` 覆盖 |
+| `tasks` | `merge_tasks` | 按 `task_id` 覆盖（DAG 是可变结构） |
+| `issues` | `merge_issues` | 按 `issue_id` 合并 |
+| `searched_queries` | `merge_str_list` | 去重 |
+| `source_texts` | `merge_dict` | 按 key 覆盖 |
+| `ledger_events` | `append_list` | 只追加；节点只回写本节点新增的事件 |
+
+配合内容哈希生成 id（`evidence.stable_id`、`claim.make_claim_id`），
+同一来源、同一句话在不同并发分支里得到同一个 id，从而收敛为一条。
+
+---
+
+## 可追溯性：从结论回到检索式
+
+- `ledger.py: ResearchLedger`：只追加的事件流水（任务调度、来源登记、证据抽取与校验、问题、裁决）
+- `ledger.py: build_trace`：按"声明 → 证据 → 来源 → 任务 → 检索式"回溯，输出 `trace`
+
+报告里的每个 `[E3]` 都能对应到一条 Evidence，Evidence 上有 `quote` 与 `verification_status`，
+Evidence 指向 Source，Source 上有 url / doi / 年份 / 来源类型。
+
+**边界**：引用校验只覆盖"报告里的编号是否指向真实且通过校验的证据"，
+不校验"这条证据是否真的支持这句话"——后者是语义判断，当前由模型在抽取阶段完成，程序不复核。
 
 ---
 
@@ -199,10 +243,16 @@ confidence = max(0.3, min(1.0,
 ```
 clawgent/core/research/
 ├── graph.py      # LangGraph 子图定义，节点连线与重试策略
-├── nodes.py      # 7 个节点的具体实现
-├── state.py      # ResearchStateDict，含 operator.add reducer 声明
+├── nodes.py      # 8 个节点的具体实现
+├── state.py      # ResearchStateDict 与语义化 reducer
+├── dag.py        # ResearchTask / ResearchPacket / TaskDAG（确定性调度）
+├── evidence.py   # Source / SourceRegistry / Evidence / EvidenceVerifier
+├── claim.py      # Claim / ClaimRelation / ClaimGraph（支撑状态推导）
+├── citation.py   # SourceCatalog / CitationVerifier（引用目录与校验）
+├── ledger.py     # ResearchLedger / build_trace（过程记录与回溯）
 ├── search.py     # hybrid_search：学术MCP + Tavily + RAG 三路并发
 └── academic.py   # 学术 MCP 客户端（arXiv / Semantic Scholar / PubMed）
 ```
 
+测试：`tests/test_research_dag.py`（确定性逻辑）、`tests/test_research_flow.py`（离线整链路，不联网）。
 触发入口：`clawgent/core/tools/research_tool.py` → `deep_research(query)` 工具。

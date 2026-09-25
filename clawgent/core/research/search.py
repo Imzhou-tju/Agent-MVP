@@ -70,6 +70,9 @@ def rag_search(query: str, top_k: int = 4) -> list[dict]:
                 "search_query": query,
                 "source": "rag",
                 "relevance": d.get("rerank_score", 0.0),
+                # chunk_id 供 Evidence.locator 定位到具体切片（chunk:xxx）
+                "chunk_id": d.get("chunk_id", ""),
+                "document_name": d.get("document_name", ""),
             })
         return results
     except Exception as e:
