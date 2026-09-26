@@ -55,8 +55,10 @@ _SOP_DEFINITIONS: dict[str, dict] = {
     },
 }
 
-# SOP 能力维度 → 建议的 task_type（供 repair 补任务 / coverage 兜底使用）
-_CAPABILITY_TO_TASK_TYPE = {
+# SOP 能力维度 → 建议的 task_type（供 repair 补任务 / coverage 兜底使用）。
+# 表里的键就是 required_dimensions / optional_dimensions 用的维度名，两者必须一一对应，
+# 否则 plan_validation._type_for_capability 会回落成 FACT，导致补出来的对比类任务找不到上游。
+CAPABILITY_TO_TASK_TYPE = {
     "object_definition": "BACKGROUND",
     "background": "BACKGROUND",
     "method_or_mechanism": "MECHANISM",
@@ -186,11 +188,41 @@ def select_sop(query: str) -> ResearchSOP:
 
 def capability_to_task_type(capability: str) -> str:
     """能力维度 → 建议 task_type（repair 补任务时用）。"""
-    return _CAPABILITY_TO_TASK_TYPE.get(str(capability).lower(), "FACT")
+    return CAPABILITY_TO_TASK_TYPE.get(str(capability).lower(), "FACT")
+
+
+# 维度名 → 中文说法。兜底计划要按维度生成可检索的问题，直接用英文维度名会污染检索式。
+_DIMENSION_LABELS = {
+    "object_definition": "定义与基本概念",
+    "background": "背景与现状",
+    "method_or_mechanism": "方法或机制",
+    "evaluation_or_comparison": "评价或对比",
+    "evidence": "事实与证据",
+    "synthesis": "综合结论",
+    "limitation": "局限与边界",
+    "trend": "发展趋势",
+    "benchmark": "基准与评测",
+    "ablation": "消融分析",
+    "method": "方法",
+    "mechanism": "机制",
+    "evaluation": "评价",
+    "comparison": "对比",
+    "fact": "事实",
+}
+
+
+def dimension_label(capability: str) -> str:
+    """维度名 → 中文说法（未收录时返回原名）。"""
+    return _DIMENSION_LABELS.get(str(capability).lower(), str(capability))
+
+
+def known_capability(capability: str) -> bool:
+    """该维度名是否在映射表里（未命中时 capability_to_task_type 会回落到 FACT）。"""
+    return str(capability).lower() in CAPABILITY_TO_TASK_TYPE
 
 
 # task_type → 它「能提供」的 SOP 维度集合（供 PlanValidator 做覆盖判断）。
-# 方向与 _CAPABILITY_TO_TASK_TYPE 相反：这里回答「某类任务产出哪些维度」。
+# 方向与 CAPABILITY_TO_TASK_TYPE 相反：这里回答「某类任务产出哪些维度」。
 _TASK_TYPE_TO_DIMENSIONS: dict[str, set[str]] = {
     "BACKGROUND": {"object_definition", "background"},
     "FACT": {"evidence", "fact", "object_definition"},

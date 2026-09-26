@@ -216,7 +216,9 @@ CREATE TABLE IF NOT EXISTS plan_gates (
     repair_count  INTEGER DEFAULT 0,
     critic_called INTEGER DEFAULT 0,
     critic_failed INTEGER DEFAULT 0,
-    issues        TEXT
+    issues        TEXT,
+    fallback_applied INTEGER DEFAULT 0,
+    reject_reasons TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_evidences_source  ON evidences (run_id, source_id);
@@ -271,6 +273,14 @@ class ResearchStore:
             conn.execute("PRAGMA busy_timeout=15000")
             conn.execute("PRAGMA foreign_keys=ON")
             conn.executescript(SCHEMA)
+            # 旧库补列：CREATE TABLE IF NOT EXISTS 不会给已存在的表加列
+            for table, col, decl in (
+                ("plan_gates", "fallback_applied", "INTEGER DEFAULT 0"),
+                ("plan_gates", "reject_reasons", "TEXT"),
+            ):
+                cols = [r[1] for r in conn.execute(f"PRAGMA table_info({table})")]
+                if cols and col not in cols:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
             conn.commit()
             self._conn = conn
             return conn
@@ -585,16 +595,21 @@ class ResearchStore:
             try:
                 conn.execute(
                     "INSERT INTO plan_gates (run_id, decision, sop_type, repair_count,"
-                    " critic_called, critic_failed, issues) VALUES (?,?,?,?,?,?,?) "
+                    " critic_called, critic_failed, issues, fallback_applied,"
+                    " reject_reasons) VALUES (?,?,?,?,?,?,?,?,?) "
                     "ON CONFLICT(run_id) DO UPDATE SET decision=excluded.decision,"
                     " sop_type=excluded.sop_type, repair_count=excluded.repair_count,"
                     " critic_called=excluded.critic_called,"
-                    " critic_failed=excluded.critic_failed, issues=excluded.issues",
+                    " critic_failed=excluded.critic_failed, issues=excluded.issues,"
+                    " fallback_applied=excluded.fallback_applied,"
+                    " reject_reasons=excluded.reject_reasons",
                     (run_id, gate.get("decision", ""), gate.get("sop_type", ""),
                      _as_int(gate.get("repair_count", 0)),
                      1 if gate.get("critic_called") else 0,
                      1 if gate.get("critic_failed") else 0,
-                     _json(gate.get("issues", []), [])),
+                     _json(gate.get("issues", []), []),
+                     1 if gate.get("fallback_applied") else 0,
+                     _json(gate.get("reject_reasons", []), [])),
                 )
                 conn.commit()
             except Exception as e:

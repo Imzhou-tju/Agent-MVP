@@ -87,7 +87,9 @@ class PlanIssue:
     severity: str = "medium"               # high / medium / low
     target_type: str = "task"              # task / plan / global
     target_id: str = ""                    # 关联的 task_id（或空）
-    recommended_action: str = "none"       # add_task / reopen_task / remove_task / none
+    # add_task / reopen_task / remove_task / fix_dependency / none
+    # fix_dependency：删掉指向不存在任务的依赖与自依赖（MISSING_DEP / SELF_DEP）
+    recommended_action: str = "none"
     suggested_task: dict = field(default_factory=dict)  # add_task 时的任务规格
     capability: str = ""                   # MISSING_CAPABILITY 时缺的能力
 
@@ -171,12 +173,15 @@ class PlanSchemaValidator:
             for dep in t.dependencies:
                 if dep == t.task_id:
                     issues.append(PlanIssue(
-                        ISSUE_SELF_DEP, f"任务 {t.task_id} 自依赖", "high", t.task_id,
+                        ISSUE_SELF_DEP, f"任务 {t.task_id} 自依赖",
+                        severity="high", target_id=t.task_id,
+                        recommended_action="fix_dependency",
                     ))
                 elif dep not in dag.tasks:
                     issues.append(PlanIssue(
                         ISSUE_MISSING_DEP, f"任务 {t.task_id} 依赖不存在的 {dep}",
-                        "high", t.task_id,
+                        severity="high", target_id=t.task_id,
+                        recommended_action="fix_dependency",
                     ))
 
         # root 可达性
@@ -186,7 +191,7 @@ class PlanSchemaValidator:
                 issues.append(PlanIssue(
                     ISSUE_UNREACHABLE,
                     f"任务 {tid} 无法从任何 root 到达，永远不会被调度",
-                    "high", tid, recommended_action="remove_task",
+                    severity="high", target_id=tid, recommended_action="remove_task",
                 ))
 
         # 依赖「能提供输入」的语义判断：下游类型应能从上边类型拿到可用结论
@@ -274,8 +279,17 @@ class PlanCoverageValidator:
 
 
 def _type_for_capability(cap: str) -> str:
-    """能力名 → 建议 task_type（用于 repair 补任务时的默认类型）。"""
+    """能力名 → 建议 task_type（用于 repair 补任务时的默认类型）。
+
+    先查 sop.CAPABILITY_TO_TASK_TYPE（SOP 的维度名都在那张表里），查不到再走旧表。
+    这张表同时被 _deps_for_capability 用来找上游类型：把 evaluation_or_comparison
+    错认成 FACT 会导致补出来的对比任务找不到上游，进而被判成"无证据祖先"。
+    """
+    from .sop import capability_to_task_type as _sop_type, known_capability
+
     c = str(cap).lower()
+    if known_capability(c):
+        return _sop_type(c)
     table = {
         "method": "METHOD", "dataset": "FACT", "performance": "RESULT",
         "limitation": "LIMITATION", "comparison": "COMPARISON", "trend": "TREND",
@@ -534,7 +548,7 @@ def validate_plan(
     plan: ResearchPlan,
     query: str = "",
     critic: SemanticPlanCritic | None = None,
-    max_repairs: int = 3,
+    max_repairs: int = 8,
 ) -> PlanValidationResult:
     """执行前验证编排：Schema → Coverage → SemanticCritic → LocalRepair。
 
@@ -576,10 +590,11 @@ def validate_plan(
 
 
 def _apply_local_repair(dag: TaskDAG, issues: list[PlanIssue], max_repairs: int) -> int:
-    """就地执行 local repair：只处理 add_task / remove_task，不重建整图。
+    """就地执行 local repair：只处理 add_task / remove_task / fix_dependency，不重建整图。
 
     - add_task：按 suggested_task 构造 ResearchTask 加入 DAG（受 max_repairs 上限）；
-    - remove_task：删除无意义/冗余任务（仅当其无下游时，避免破坏依赖）。
+    - remove_task：删除无意义/冗余任务（仅当其无下游时，避免破坏依赖）；
+    - fix_dependency：删掉指向不存在任务的依赖与自依赖。
     返回实际修改的任务数。
     """
     repaired = 0
@@ -587,11 +602,27 @@ def _apply_local_repair(dag: TaskDAG, issues: list[PlanIssue], max_repairs: int)
         if repaired >= max_repairs:
             break
         action = issue.recommended_action
+        if action == "fix_dependency" and issue.target_id:
+            task = dag.tasks.get(issue.target_id)
+            if task is not None:
+                before = list(task.dependencies)
+                task.dependencies = [
+                    d for d in before if d != issue.target_id and d in dag.tasks
+                ]
+                if task.dependencies != before:
+                    repaired += 1
+            continue
         if action == "remove_task" and issue.target_id:
             tid = issue.target_id
-            if tid in dag.tasks and not _has_downstream(dag, tid):
-                del dag.tasks[tid]
-                repaired += 1
+            if tid not in dag.tasks or _has_downstream(dag, tid):
+                continue
+            # UNREACHABLE 是本轮先算出来的：同一轮里 fix_dependency 可能已经把
+            # 悬空依赖清掉，任务重新变成可达。按当前图再判一次，避免误删任务。
+            if (issue.issue_type == ISSUE_UNREACHABLE
+                    and tid in dag.reachable_from_roots()):
+                continue
+            del dag.tasks[tid]
+            repaired += 1
             continue
         if action != "add_task":
             continue
@@ -633,19 +664,26 @@ def _has_downstream(dag: TaskDAG, task_id: str) -> bool:
 
 
 def _deps_for_capability(dag: TaskDAG, capability: str) -> list[str]:
-    """为缺失能力补任务时，找出已覆盖该能力或其上游能力的任务作为依赖。"""
+    """为缺失能力补任务时，找出已覆盖该能力或其上游能力的任务作为依赖。
+
+    _DEPENDENCY_RULES 没有为 SYNTHESIS 这类类型声明上游，此时退化成「挂能提供
+    事实/证据的祖先」（_EVIDENCE_PROVIDER_TYPES），保证补出来的综合任务不会立刻
+    被 _check_evidence_dependency 判成过早进入综合。
+    """
     from .dag import _DEPENDENCY_RULES
     want = str(capability).lower()
     # 该能力作为下游类型时，应依赖哪些上游能力
     down_type = _type_for_capability(want)
     upstream_types = _DEPENDENCY_RULES.get(down_type, ())
+    if not upstream_types:
+        upstream_types = _EVIDENCE_PROVIDER_TYPES
     deps = []
     for t in dag.tasks.values():
         caps = {str(c).lower() for c in t.capabilities}
         caps.add(_TASK_TYPE_CAPABILITY.get(str(t.task_type).upper(), ""))
         if want in caps:
             deps.append(t.task_id)
-        elif any(_TASK_TYPE_CAPABILITY.get(u, "") in caps for u in upstream_types):
+        elif str(t.task_type).upper() in upstream_types:
             deps.append(t.task_id)
     return deps[:2]  # 最多挂 2 个上游，避免过度耦合
 
@@ -659,6 +697,71 @@ def _new_task_id(dag: TaskDAG, hint: str) -> str:
         i += 1
         tid = f"{base}-{i}"
     return tid
+
+
+# ---------------------------------------------------------------------------
+# 兜底计划：Plan Gate 判 REJECT 后的确定性替代方案
+# ---------------------------------------------------------------------------
+
+def build_fallback_plan(query: str, sop: "ResearchSOP | None" = None,
+                        plan_id: str = "") -> tuple[TaskDAG, ResearchPlan]:
+    """按 SOP 的 required 维度生成一个最小可执行计划（确定性，不调模型）。
+
+    用在 Plan Gate 判 REJECT 之后：Planner 的图补不动时（比如任务缺
+    objective/question、缺的维度补不出来），用这份计划继续调研，而不是带着坏计划往下跑。
+
+    每个 required 维度一个任务，任务类型由 _type_for_capability 决定，
+    依赖按 dag._DEPENDENCY_RULES 挂到已建任务上（没有规则可依时挂事实/证据型任务），
+    保证 COMPARISON / SYNTHESIS 不会一开始就缺证据祖先。
+    """
+    from .sop import build_sop, dimension_label
+
+    sop = sop or build_sop("FACT")
+    required = list(sop.required_dimensions) or ["object_definition"]
+
+    dag = TaskDAG()
+    built: list[ResearchTask] = []
+    for i, dim in enumerate(required, 1):
+        tt = _type_for_capability(dim)
+        label = dimension_label(dim)
+        text = f"{query} 的{label}" if query else label
+        task = ResearchTask(
+            task_id=f"fb{i}",
+            objective=text,
+            question=text,
+            task_type=tt,
+            expected_evidence=f"关于{label}的可引用结论",
+            search_strategy=f"检索「{query}」在{label}方面的资料",
+            dependencies=_fallback_upstream(built, tt),
+            capabilities=[str(dim).lower()],
+            priority=1,
+            notes=f"兜底计划：SOP({sop.sop_type}) 要求覆盖维度 {dim}",
+        )
+        ok, _reason = dag.add_task(task)
+        if ok:
+            built.append(task)
+
+    if not dag.tasks:       # 理论上到不了：required 为空已在上面兜住
+        dag.add_task(ResearchTask(task_id="fb1", objective=query, question=query))
+
+    plan = ResearchPlan(
+        plan_id=plan_id or f"fallback-{sop.sop_type}",
+        objective=query,
+        tasks=list(dag.tasks.values()),
+        required_dimensions=list(required),
+    )
+    return dag, plan
+
+
+def _fallback_upstream(built: list[ResearchTask], task_type: str) -> list[str]:
+    """兜底计划的依赖挂载：按 _DEPENDENCY_RULES 找已建任务，最多挂 2 个。"""
+    from .dag import _DEPENDENCY_RULES
+
+    allowed = _DEPENDENCY_RULES.get(str(task_type).upper()) or _EVIDENCE_PROVIDER_TYPES
+    cands = [t.task_id for t in built if str(t.task_type).upper() in allowed]
+    if not cands:
+        cands = [t.task_id for t in built]
+    return cands[-2:]
 
 
 # ---------------------------------------------------------------------------
@@ -846,7 +949,7 @@ class PlanValidator:
                     f"任务 {t.task_id} 是 SYNTHESIS，但没有任何证据型祖先，"
                     f"属于过早进入综合",
                     severity="high", target_id=t.task_id,
-                    recommended_action="add_task",
+                    recommended_action="add_task", capability="evidence",
                     suggested_task={
                         "question": f"为 {t.task_id} 补充事实/机制类证据任务",
                         "task_type": "FACT",
@@ -860,7 +963,7 @@ class PlanValidator:
                     f"任务 {t.task_id} 是 {tt}，但没有任何证据型祖先，"
                     f"对比结论缺乏事实支撑",
                     severity="high", target_id=t.task_id,
-                    recommended_action="add_task",
+                    recommended_action="add_task", capability="evidence",
                     suggested_task={
                         "question": f"为 {t.task_id} 补充对象的事实性证据",
                         "task_type": "FACT",
@@ -920,13 +1023,14 @@ class PlanGate:
 
     编排：
         1. PlanValidator 确定性校验；
-        2. 有 HIGH 问题 → 先 Repair 一次；
+        2. 有 HIGH 问题 → Repair 一轮并重检，最多 MAX_VALIDATOR_REPAIR_ROUNDS 轮；
         3. PlanCritic 一次（最多 1 次 LLM 调用）；
-        4. Critic 判 REPAIR → Repair 一次；
+        4. Critic 给出 issue → Repair 一次；
         5. 终态 validator 校验 → ALLOW / ALLOW_WITH_WARNINGS / REJECT。
 
-    约束：Planner 1 次、Critic 1 次、Repair 1 次（本 gate 内）。
+    约束：Planner 1 次、Critic 1 次；Repair 是确定性的，不额外调模型。
     Critic 调用失败 → 只用 Validator 结果：无 HIGH → ALLOW_WITH_WARNINGS，有 HIGH → REJECT。
+    REJECT 本身不做阻断：由调用方（planner_node）决定是兜底还是停用，见 build_fallback_plan。
 
     critic / repair 均可注入 Fake 实现（离线测试，§8）。
     """
@@ -943,13 +1047,19 @@ class PlanGate:
         if self._sop is not None:
             result.sop_type = self._sop.sop_type
 
-        # 1. 确定性校验
-        validator_issues = self._validator.validate(dag, plan)
+        # 1. 确定性校验：有 HIGH 就 repair 一轮，再校验，最多 MAX_VALIDATOR_REPAIR_ROUNDS 轮。
+        # 只做一轮时，SURVEY/COMPARISON 的 5 个 required 维度补不完（单轮上限挡住），
+        # 残留的 HIGH 会把整个计划判成 REJECT。
+        validator_issues: list[PlanIssue] = []
+        for _ in range(MAX_VALIDATOR_REPAIR_ROUNDS):
+            validator_issues = self._validator.validate(dag, plan)
+            if not _has_high(validator_issues):
+                break
+            n = _apply_local_repair(dag, validator_issues, MAX_REPAIRS)
+            result.repair_count += n
+            if n == 0:      # 补不动了（如 recommended_action=none 的 HIGH），再循环也没用
+                break
         result.validator_issues = validator_issues
-
-        # 2. 有 HIGH → 先 Repair 一次（确定性修补）
-        if _has_high(validator_issues):
-            result.repair_count += _apply_local_repair(dag, validator_issues, MAX_REPAIRS)
 
         # 3. Critic（最多 1 次）
         if self._critic is not None:
@@ -983,8 +1093,11 @@ class PlanGate:
         return result
 
 
-# 单次 gate 内 repair 的上限（§6：最多 1 次局部修补，且不重建整棵 DAG）
-MAX_REPAIRS = 3
+# 单轮 repair 允许修改的任务数上限。SOP 最多声明 5 个 required 维度，
+# 一轮要把缺的维度补齐就得 >= 5，故取 5 并留余量（fix_dependency 也占额度）。
+MAX_REPAIRS = 8
+# validator → repair 的最大轮数。补完一轮后重检，仍缺就再补一轮。
+MAX_VALIDATOR_REPAIR_ROUNDS = 2
 
 
 def _has_high(issues: list[PlanIssue]) -> bool:

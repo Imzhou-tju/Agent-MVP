@@ -55,9 +55,11 @@ from .dag import MAX_REPAIR_TASKS, ResearchPacket, ResearchPlan, ResearchTask, T
 from .review import ResearchReview, build_review
 from .plan_validation import (
     EvidenceCoverageValidator,
+    GATE_REJECT,
     PlanGate,
     SemanticPlanCritic,
     TaskSuccessCriteriaEvaluator,
+    build_fallback_plan,
 )
 from .sop import select_sop
 from .store import get_store
@@ -79,6 +81,7 @@ from .ledger import (
     EVIDENCE_VERIFIED,
     ISSUE_FOUND,
     PLAN_CREATED,
+    PLAN_REJECTED_FALLBACK,
     PROGRESS_LOG,
     REPORT_COMPILED,
     SOURCE_REGISTERED,
@@ -268,8 +271,32 @@ def planner_node(state: ResearchStateDict) -> Command:
     gate_result = gate.run(dag, plan, query=query)
     plan.tasks = list(dag.tasks.values())  # repair 可能就地增删任务，回写 plan
 
+    # REJECT 的兜底：补不动的坏计划（如任务缺 objective/question）不往下传，
+    # 换成按 SOP required 维度展开的最小计划。兜底计划仍要过一遍确定性校验。
+    gate_dict = gate_result.to_dict()
+    fallback_applied = False
+    if gate_result.decision == GATE_REJECT:
+        reject_reasons = [i.description for i in gate_result.issues if i.severity == "high"]
+        fb_dag, fb_plan = build_fallback_plan(query, sop, plan_id=plan.plan_id)
+        # 兜底只做确定性校验：Critic 已经调过一次，不再为兜底计划多花一次 LLM
+        recheck = PlanGate(sop=sop).run(fb_dag, fb_plan, query=query)
+        dag, plan = fb_dag, fb_plan
+        plan.tasks = list(dag.tasks.values())
+        fallback_applied = True
+        gate_dict.update({
+            "decision": recheck.decision,
+            "fallback_applied": True,
+            "reject_reasons": reject_reasons,
+            "fallback_issues": [i.to_dict() for i in recheck.issues],
+            "repair_count": gate_result.repair_count + recheck.repair_count,
+        })
+        ledger.append(PLAN_REJECTED_FALLBACK, sop_type=sop.sop_type,
+                      task_count=len(dag.tasks), reasons=reject_reasons)
+        print(f"[Planner] 计划被质量闸门 REJECT，改用兜底计划：{reject_reasons}")
+
     # 把门控问题转成 issue，交给 repair 复用同一套机制
-    plan_validation_issues = [i.to_dict() for i in gate_result.issues
+    gate_issues = gate_result.issues if not fallback_applied else recheck.issues
+    plan_validation_issues = [i.to_dict() for i in gate_issues
                               if i.recommended_action in ("add_task", "remove_task")]
 
     # 落库：run 主记录 + DAG + 质量闸门快照
@@ -282,7 +309,7 @@ def planner_node(state: ResearchStateDict) -> Command:
         "tasks": dag.to_dicts(),
         "issues": plan_validation_issues,
         "ledger_events": ledger.delta(),
-    }, gate=gate_result.to_dict())
+    }, gate=gate_dict)
 
     return Command(
         update={
@@ -291,8 +318,9 @@ def planner_node(state: ResearchStateDict) -> Command:
             "plan": plan.to_dict(),
             "plan_summary": _plan_summary(dag),
             "round_no": 0,
-            "plan_validation": gate_result.to_dict(),
-            "plan_gate": gate_result.to_dict(),
+            "plan_validation": gate_dict,
+            "plan_gate": gate_dict,
+            "plan_fallback_applied": fallback_applied,
             "sop_type": sop.sop_type,
             "issues": plan_validation_issues,
             "repaired_issue_ids": [i["issue_id"] for i in plan_validation_issues],
@@ -1282,6 +1310,16 @@ def compiler_node(state: ResearchStateDict) -> ResearchStateDict:
     trace = build_trace(usable, evidences, sources, state.get("tasks", []))
     trace_text = _render_trace_summary(trace)
     report = f"{report}\n\n## 可追溯性说明\n{trace_text}\n"
+
+    # 计划被质量闸门判 REJECT 并改用兜底计划时，把原因写进报告（程序生成，不经过模型）
+    if state.get("plan_fallback_applied"):
+        reasons = (state.get("plan_gate", {}) or {}).get("reject_reasons") or []
+        lines = "\n".join(f"- {r}" for r in reasons) or "- 未记录具体原因"
+        report = (
+            f"{report}\n\n## 计划质量说明\n"
+            "Planner 生成的计划未通过质量闸门校验，本次调研改用按研究维度展开的兜底计划执行。\n"
+            f"未通过原因：\n{lines}\n"
+        )
 
     ledger.append(REPORT_COMPILED, verdict=verdict,
                   citations=len(result["refs"]),

@@ -318,14 +318,54 @@ class TestPlanGate(unittest.TestCase):
         t1 = dag_obj.tasks["t1"]
         self.assertTrue(t1.dependencies)
 
-    def test_repair_still_invalid_reject(self):
-        # 无法修复的高危问题（依赖不存在），repair 也补不了 → REJECT
+    def test_fix_dependency_prunes_ghost_dependency(self):
+        # 依赖指向不存在的任务：fix_dependency 直接删掉这条依赖，不再判 REJECT
         t = _task("t1", "综合", "SYNTHESIS", deps=["ghost"])
         dag_obj = TaskDAG()
         dag_obj.tasks["t1"] = t  # 绕过 add_task 校验，模拟畸形 DAG
         gate = PlanGate(sop=None, critic=_FakeCritic())
         r = gate.run(dag_obj, _plan(dag_obj.tasks.values()), query="综合")
+        self.assertNotEqual(r.decision, GATE_REJECT)
+        self.assertNotIn("ghost", dag_obj.tasks["t1"].dependencies)
+
+    def test_unreachable_task_not_deleted_after_dependency_fixed(self):
+        # 同一轮里先清掉悬空依赖，任务重新可达 → 不能按旧结论把它删掉
+        t = _task("t1", "综合", "SYNTHESIS", deps=["ghost"])
+        dag_obj = TaskDAG()
+        dag_obj.tasks["t1"] = t
+        gate = PlanGate(sop=None, critic=_FakeCritic())
+        gate.run(dag_obj, _plan(dag_obj.tasks.values()), query="综合")
+        self.assertIn("t1", dag_obj.tasks)
+
+    def test_missing_field_still_reject(self):
+        # 任务既无 objective 也无 question：没有可修动作，补不动 → REJECT
+        dag_obj = TaskDAG([_task("t1", "", "FACT")])
+        gate = PlanGate(sop=None, critic=_FakeCritic())
+        r = gate.run(dag_obj, _plan(dag_obj.tasks.values()), query="q")
         self.assertEqual(r.decision, GATE_REJECT)
+
+    def test_missing_many_dimensions_converges(self):
+        # SURVEY 有 5 个 required 维度，Planner 只给 1 个任务：
+        # repair 要能把缺的维度补齐（单轮上限 3 时补不完，会残留 HIGH）
+        dag_obj = TaskDAG([_task("t1", "对比 A 和 B", "COMPARISON")])
+        gate = PlanGate(sop=build_sop("SURVEY"), critic=_FakeCritic())
+        r = gate.run(dag_obj, _plan(dag_obj.tasks.values()), query="对比 A 和 B")
+        self.assertNotEqual(r.decision, GATE_REJECT)
+        covered: set = set()
+        for t in dag_obj.tasks.values():
+            covered.update(sop.task_type_dimensions(t.task_type))
+        for dim in build_sop("SURVEY").required_dimensions:
+            self.assertIn(dim, covered)
+
+    def test_repaired_comparison_has_evidence_ancestor(self):
+        # 补出来的 COMPARISON 必须挂在事实/机制类任务上，不能自己又变成「无证据祖先」
+        dag_obj = TaskDAG([_task("t1", "X 的背景", "BACKGROUND")])
+        gate = PlanGate(sop=build_sop("COMPARISON"), critic=_FakeCritic())
+        r = gate.run(dag_obj, _plan(dag_obj.tasks.values()), query="对比 X 与 Y")
+        self.assertNotEqual(r.decision, GATE_REJECT)
+        for t in dag_obj.tasks.values():
+            if str(t.task_type).upper() in ("COMPARISON", "SYNTHESIS"):
+                self.assertTrue(t.dependencies, f"{t.task_id} 没有上游依赖")
 
     def test_critic_failure_fallback(self):
         # Critic 抛异常 → 只用 validator 结果，无 HIGH → ALLOW_WITH_WARNINGS
@@ -363,6 +403,51 @@ class TestPlanGate(unittest.TestCase):
         r = gate.run(dag_obj, _plan(dag_obj.tasks.values()), query="q")
         self.assertEqual(r.decision, GATE_ALLOW)
         self.assertEqual(fake.calls, 1)
+
+
+class TestFallbackPlan(unittest.TestCase):
+    """REJECT 后的兜底计划：按 SOP required 维度展开，确定性，不调模型。"""
+
+    def test_covers_all_required_dimensions(self):
+        s = build_sop("COMPARISON")
+        dag_obj, plan = pv.build_fallback_plan("对比 A 和 B", s)
+        self.assertEqual(len(dag_obj.tasks), len(s.required_dimensions))
+        covered: set = set()
+        for t in dag_obj.tasks.values():
+            covered.update(sop.task_type_dimensions(t.task_type))
+        for dim in s.required_dimensions:
+            self.assertIn(dim, covered)
+
+    def test_questions_are_distinct(self):
+        # 每个任务的问题都不一样，否则会被 REDUNDANT_TASK 判成重复任务
+        s = build_sop("SURVEY")
+        dag_obj, _ = pv.build_fallback_plan("梳理 X 领域研究现状", s)
+        questions = [t.question for t in dag_obj.tasks.values()]
+        self.assertEqual(len(questions), len(set(questions)))
+        self.assertTrue(all(q.strip() for q in questions))
+
+    def test_passes_gate(self):
+        # 兜底计划自己要能过闸门，否则换了也是白换
+        s = build_sop("SURVEY")
+        dag_obj, plan = pv.build_fallback_plan("梳理 X 领域研究现状", s)
+        r = PlanGate(sop=s, critic=_FakeCritic()).run(
+            dag_obj, plan, query="梳理 X 领域研究现状")
+        self.assertNotEqual(r.decision, GATE_REJECT)
+
+    def test_fact_sop_two_dimensions(self):
+        # FACT 的 required 是 object_definition + evidence：第一个任务无依赖，
+        # 第二个（取证）挂在第一个（下定义）之后
+        s = build_sop("FACT")
+        dag_obj, _ = pv.build_fallback_plan("什么是 x-vector", s)
+        self.assertEqual(len(dag_obj.tasks), len(s.required_dimensions))
+        tasks = list(dag_obj.tasks.values())
+        self.assertEqual(tasks[0].dependencies, [])
+        self.assertEqual(tasks[1].dependencies, [tasks[0].task_id])
+
+    def test_no_sop_falls_back_to_fact(self):
+        dag_obj, plan = pv.build_fallback_plan("随便一个问题", None)
+        self.assertTrue(dag_obj.tasks)
+        self.assertEqual(plan.required_dimensions, build_sop("FACT").required_dimensions)
 
 
 if __name__ == "__main__":

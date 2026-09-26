@@ -176,6 +176,8 @@ class ResearchState:
         self.plan_validation: dict = field(default_factory=dict)
         # 计划质量闸门（§Plan Gate）：SOP 选型 + Validator + Critic + Repair 的门控结果
         self.plan_gate: dict = field(default_factory=dict)
+        # 闸门判 REJECT 后是否启用了兜底计划（按 SOP 维度展开的最小计划）
+        self.plan_fallback_applied: bool = False
         self.sop_type: str = ""
         # 执行后 Evidence/Claim 覆盖验证的结果快照
         self.coverage_validation: dict = field(default_factory=dict)
@@ -234,6 +236,8 @@ class ResearchStateDict(TypedDict, total=False):
     plan_validation: dict
     # 计划质量闸门（§Plan Gate）：SOP 选型 + Validator + Critic + Repair 门控结果
     plan_gate: dict
+    # 闸门判 REJECT 后是否启用了兜底计划（plan_gate 里带 reject_reasons 说明原因）
+    plan_fallback_applied: bool
     sop_type: str
     coverage_validation: dict
 

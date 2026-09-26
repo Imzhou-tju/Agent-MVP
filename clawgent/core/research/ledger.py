@@ -15,6 +15,8 @@ from typing import Any, Iterable
 
 # 事件类型
 PLAN_CREATED = "plan_created"
+# 计划被质量闸门判 REJECT，改用按 SOP 维度展开的兜底计划
+PLAN_REJECTED_FALLBACK = "plan_rejected_fallback"
 TASK_DISPATCHED = "task_dispatched"
 TASK_COMPLETED = "task_completed"
 TASK_FAILED = "task_failed"
