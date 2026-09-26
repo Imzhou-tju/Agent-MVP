@@ -41,12 +41,16 @@ from .claim import (
     make_claim_id,
 )
 from .citation import (
-    SourceCatalog,
+    CitationBinder,
+    CitationRenderer,
     CitationVerifier,
+    SourceCatalog,
     UNKNOWN_REF,
     UNVERIFIED_EVIDENCE,
+    UnsupportedClaimDetector,
 )
-from .dag import MAX_REPAIR_TASKS, ResearchPacket, ResearchTask, TaskDAG
+from .dag import MAX_REPAIR_TASKS, ResearchPacket, ResearchPlan, ResearchTask, TaskDAG
+from .review import ResearchReview, build_review
 from .evidence import (
     Evidence,
     Source,
@@ -68,6 +72,8 @@ from .ledger import (
     TASK_DISPATCHED,
     TASK_FAILED,
     TASK_REOPENED,
+    REVISION_CREATED,
+    UNSUPPORTED_CLAIM,
     VERDICT,
     ResearchLedger,
     build_trace,
@@ -187,6 +193,13 @@ def planner_node(state: ResearchStateDict) -> Command:
     if not dag.tasks:
         dag.add_task(ResearchTask(task_id="t1", objective=query, question=query))
 
+    plan = ResearchPlan(
+        plan_id=stable_id("P", query),
+        objective=query,
+        constraints=context or "",
+        tasks=list(dag.tasks.values()),
+    )
+
     ledger = _ledger(state)
     ledger.append(PLAN_CREATED, task_count=len(dag.tasks),
                   query=query, summary=_plan_summary(dag))
@@ -194,6 +207,7 @@ def planner_node(state: ResearchStateDict) -> Command:
     return Command(
         update={
             "tasks": dag.to_dicts(),
+            "plan": plan.to_dict(),
             "plan_summary": _plan_summary(dag),
             "round_no": 0,
             "ledger_events": ledger.delta(),
@@ -427,11 +441,11 @@ async def researcher_node(state: ResearchStateDict) -> ResearchStateDict:
         evidence_ids=evidence_ids,
         claims=[c["claim_id"] for c in claims_out],
         unresolved_issues=[] if evidence_ids else ["未能抽取出通过校验的证据"],
-        status="DONE" if evidence_ids else "FAILED",
+        status="COMPLETED" if evidence_ids else "FAILED",
         error="" if evidence_ids else "无可用证据",
     )
     task.status = packet.status
-    ledger.append(TASK_COMPLETED if packet.status == "DONE" else TASK_FAILED,
+    ledger.append(TASK_COMPLETED if packet.status == "COMPLETED" else TASK_FAILED,
                   task_id=task.task_id, round_no=round_no,
                   evidence_count=len(evidence_ids))
 
@@ -533,24 +547,29 @@ def _support_stats(evidences: list[dict], claims: list[dict]) -> dict:
 # Review：结构化评审（原 Critic）
 # ---------------------------------------------------------------------------
 
+# 与规范 §30 对齐的问题类型
 _ISSUE_TYPES = (
-    "MISSING_EVIDENCE",       # 声明缺少证据
-    "UNSUPPORTED_CLAIM",      # 声明的证据未通过原文校验
-    "CONFLICT",               # 证据之间存在矛盾
-    "COVERAGE_GAP",           # 研究问题有未被覆盖的方面
-    "SOURCE_QUALITY",         # 来源质量不足
-    "OUTDATED_SOURCE",        # 来源过旧
-    "LOGIC_GAP",              # 从证据到结论的推理跳跃
+    "MISSING_EVIDENCE",        # 声明缺少证据
+    "UNVERIFIED_EVIDENCE",     # 证据未通过原文校验
+    "UNSUPPORTED_CLAIM",       # 声明无可用证据
+    "WEAK_SOURCE",             # 来源质量不足
+    "CONTRADICTORY_EVIDENCE",  # 证据之间存在矛盾
+    "SCOPE_MISMATCH",          # 结论适用范围不一致
+    "INCOMPLETE_TASK",         # 任务未完成
+    "DUPLICATE_RESEARCH",      # 重复研究
+    "COVERAGE_GAP",            # 研究问题有未被覆盖的方面
+    "LOGIC_GAP",               # 从证据到结论的推理跳跃
 )
 
 
 def review_node(state: ResearchStateDict) -> ResearchStateDict:
-    """评审当前研究状态，输出结构化问题清单。
+    """评审当前研究状态，输出结构化问题清单（§29）。
 
-    与旧版差别：旧版 Critic 只输出 missing_evidence / factual_conflict / logic_gap，
-    且只有 missing_evidence 会产生补充检索 query；本版每个问题都带
-    target（作用于哪条声明/哪个任务）与 suggested_action（补任务 / 重开任务 / 无需动作），
-    供 repair 节点做局部修改。
+    与旧版差别：
+    - 确定性部分（冲突/范围不一致/未支撑声明）由程序基于 Claim 支撑状态与
+      ConflictDetector 结果计算，不依赖模型判断；
+    - 每个问题都带 target、recommended_action、required_evidence、priority，
+      供 repair 节点做局部修改（§31）。
     """
     llm = _get_llm()
     query = state.get("original_query", "")
@@ -558,6 +577,9 @@ def review_node(state: ResearchStateDict) -> ResearchStateDict:
     evidences = state.get("evidences", [])
     tasks = state.get("tasks", [])
     ledger = _ledger(state)
+
+    # 确定性评审（§29）：基于支撑状态与 ConflictDetector
+    review = build_review(claims, evidences, tasks, state.get("relations", []))
 
     claims_text = "\n".join(
         f"- [{c.get('claim_id','')}]({c.get('status','')}) {c.get('text','')}"
@@ -586,12 +608,15 @@ def review_node(state: ResearchStateDict) -> ResearchStateDict:
         "- severity: high / medium / low\n"
         "- target_type: claim / task / global\n"
         "- target_id: 对应的 claim_id 或 task_id，global 填空字符串\n"
-        "- suggested_action: add_task / reopen_task / none\n"
-        "- suggested_task: 当 suggested_action=add_task 时给出 "
+        "- recommended_action: add_task / reopen_task / none\n"
+        "- required_evidence: 解决这个问题需要拿到什么证据（一句话）\n"
+        "- priority: 1（普通）或 2（高）\n"
+        "- suggested_task: 当 recommended_action=add_task 时给出 "
         "{question, task_type, expected_evidence, search_strategy, dependencies}\n\n"
         "证据充分且无明显问题时输出 {\"issues\":[]}。只输出 JSON:\n"
         '{"issues":[{"issue_type":"COVERAGE_GAP","description":"...","severity":"high",'
-        '"target_type":"global","target_id":"","suggested_action":"add_task",'
+        '"target_type":"global","target_id":"","recommended_action":"add_task",'
+        '"required_evidence":"原始论文实验数据","priority":2,'
         '"suggested_task":{"question":"...","task_type":"FACT","expected_evidence":"...",'
         '"search_strategy":"...","dependencies":[]}}]}'
     )
@@ -620,20 +645,56 @@ def review_node(state: ResearchStateDict) -> ResearchStateDict:
         if not description:
             continue
         target_id = str(ri.get("target_id", "") or "")
+        target_type = str(ri.get("target_type", "global") or "global")
+        recommended_action = str(ri.get("recommended_action", ri.get("suggested_action", "none")) or "none")
+        priority = int(ri.get("priority") or (2 if recommended_action == "add_task" else 1))
         issues.append({
             "issue_id": stable_id("I", issue_type, target_id, description),
             "issue_type": issue_type,
             "description": description,
             "severity": severity,
-            "target_type": str(ri.get("target_type", "global") or "global"),
+            "target_type": target_type,
             "target_id": target_id,
-            "suggested_action": str(ri.get("suggested_action", "none") or "none"),
+            "target_claim_id": target_id if target_type == "claim" else "",
+            "target_task_id": target_id if target_type == "task" else "",
+            "recommended_action": recommended_action,
+            "suggested_action": recommended_action,  # 兼容旧字段
+            "required_evidence": str(ri.get("required_evidence", "") or "").strip(),
+            "priority": priority,
             "suggested_task": ri.get("suggested_task", {}) or {},
         })
         ledger.append(ISSUE_FOUND, issue_type=issue_type, severity=severity,
                       target_id=target_id)
 
-    return {"issues": issues, "ledger_events": ledger.delta()}
+    # 确定性发现的冲突 / 范围不一致也写入 issues（recommended_action=none，不触发补任务）
+    for c in review.contradictions:
+        issues.append(_conflict_issue(c, "CONTRADICTORY_EVIDENCE", "high"))
+    for s in review.scope_mismatches:
+        issues.append(_conflict_issue(s, "SCOPE_MISMATCH", "medium"))
+
+    return {"issues": issues, "review": review.to_dict(), "ledger_events": ledger.delta()}
+
+
+def _conflict_issue(pair: dict, issue_type: str, severity: str) -> dict:
+    """把 ConflictDetector 的结果转成 Issue（确定性，不触发补任务）。"""
+    a = pair.get("claim_a", "")
+    b = pair.get("claim_b", "")
+    desc = f"声明 {a} 与 {b} 存在{('冲突' if issue_type == 'CONTRADICTORY_EVIDENCE' else '适用范围不一致')}（{pair.get('verdict','')}）"
+    return {
+        "issue_id": stable_id("I", issue_type, a, b),
+        "issue_type": issue_type,
+        "description": desc,
+        "severity": severity,
+        "target_type": "claim",
+        "target_id": a,
+        "target_claim_id": a,
+        "target_task_id": "",
+        "recommended_action": "none",
+        "suggested_action": "none",
+        "required_evidence": "",
+        "priority": 1,
+        "suggested_task": {},
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -652,16 +713,18 @@ def repair_node(state: ResearchStateDict) -> ResearchStateDict:
 
     repaired = set(state.get("repaired_issue_ids", []) or [])
     # 同一个 issue 只处理一次：issue_id 由 (类型, 目标, 描述) 哈希得到，
-    # 评审在下一轮重复提出同一个问题时不会重复补任务。
+    # 评审在下一轮重复提出同一个问题时不会重复补任务（§34）。
     pending = [i for i in state.get("issues", [])
                if i.get("severity") in ("high", "medium")
-               and i.get("suggested_action") in ("add_task", "reopen_task")
+               and (i.get("recommended_action") or i.get("suggested_action"))
+                   in ("add_task", "reopen_task")
                and i.get("issue_id", "") not in repaired]
 
     added = 0
     acted: list[str] = []
     for issue in pending:
-        if issue.get("suggested_action") == "reopen_task":
+        action = issue.get("recommended_action") or issue.get("suggested_action") or "none"
+        if action == "reopen_task":
             target = issue.get("target_id", "")
             if target and dag.reopen(target, reason=issue.get("description", "")):
                 ledger.append(TASK_REOPENED, task_id=target, round_no=round_no,
@@ -676,8 +739,19 @@ def repair_node(state: ResearchStateDict) -> ResearchStateDict:
         if not question:
             continue
         deps = [str(d) for d in (spec.get("dependencies") or []) if d in dag.tasks]
+        # 修订任务命名：指向父任务则 {parent}-R{round}，否则 R{round}-{n}（§33）
+        parent = issue.get("target_task_id") or issue.get("target_id", "")
+        if parent and dag.has(parent):
+            base_id = f"{parent}-R{round_no}"
+        else:
+            base_id = f"R{round_no}-{added+1}"
+        task_id = base_id
+        suffix = 1
+        while task_id in dag.tasks:  # 同名修订避免覆盖
+            suffix += 1
+            task_id = f"{base_id}-{suffix}"
         task = ResearchTask(
-            task_id=f"r{round_no}_{added+1}",
+            task_id=task_id,
             objective=str(spec.get("expected_evidence", "") or question),
             question=question,
             task_type=str(spec.get("task_type", "FACT")).upper(),
@@ -686,6 +760,8 @@ def repair_node(state: ResearchStateDict) -> ResearchStateDict:
             dependencies=deps,
             priority=2,
             round_added=round_no,
+            parent_task_id=parent,
+            revision_round=round_no,
             notes=issue.get("description", ""),
         )
         ok, reason = dag.add_task(task)
@@ -694,6 +770,9 @@ def repair_node(state: ResearchStateDict) -> ResearchStateDict:
             acted.append(issue.get("issue_id", ""))
             ledger.append(TASK_ADDED, task_id=task.task_id, round_no=round_no,
                           question=question, reason=issue.get("description", ""))
+            ledger.append(REVISION_CREATED, task_id=task.task_id, round_no=round_no,
+                          parent_task_id=parent,
+                          action=issue.get("required_evidence", "") or question)
         else:
             print(f"[Repair] 新增任务被拒绝({reason}): {task.task_id}")
 
@@ -710,12 +789,13 @@ def repair_node(state: ResearchStateDict) -> ResearchStateDict:
 # ---------------------------------------------------------------------------
 
 def judge_node(state: ResearchStateDict) -> Command:
-    """决定进入下一轮还是成文。
+    """决定进入下一轮还是成文（§35-38）。
 
-    裁决不依赖模型打分，只看三件事：
+    裁决不依赖模型打分，只看：
     1. 是否还有可执行的任务（DAG 里存在 READY）
     2. 是否达到最大轮次
     3. 是否存在可用声明（SUPPORTED / PARTIALLY_SUPPORTED）
+    4. 进展检测：连续两轮 new_evidence_count == 0 → 终止（§38）
     """
     dag = _dag(state)
     round_no = int(state.get("round_no", 0))
@@ -723,18 +803,43 @@ def judge_node(state: ResearchStateDict) -> Command:
     support = state.get("evidence_support", {}) or {}
     ledger = _ledger(state)
 
+    # 进展检测（§38）：本轮新增证据数 = 当前证据总数 - 上轮记录值
+    ev_total = int(support.get("evidence_total", len(state.get("evidences", []))))
+    last = int(state.get("last_evidence_count", 0))
+    new_evidence = max(0, ev_total - last)
+    stagnant = int(state.get("stagnant_rounds", 0)) + (0 if new_evidence > 0 else 1)
+
+    # 连续两轮无新证据：强制终止，避免"搜索→没结果→再搜索"空转
+    if stagnant >= 2:
+        usable = int(support.get("usable_claims", 0))
+        if usable == 0:
+            verdict = ABORT_WITH_LIMITATIONS
+            reason = f"连续 {stagnant} 轮无新证据且无可引用声明（证据不足）"
+        else:
+            verdict = COMPILE_WITH_LIMITATIONS
+            reason = f"连续 {stagnant} 轮无新证据，按现有 {usable} 条可用声明成文"
+        ledger.append(VERDICT, round_no=round_no, verdict=verdict, reason=reason)
+        return Command(
+            update={"verdict": verdict, "verdict_reason": reason,
+                    "last_evidence_count": ev_total, "stagnant_rounds": stagnant,
+                    "ledger_events": ledger.delta()},
+            goto="compiler",
+        )
+
     ready = dag.ready_tasks()
     if ready and round_no < max_revisions:
         ledger.append(VERDICT, round_no=round_no, verdict=REVISE,
                       reason=f"存在 {len(ready)} 个可执行任务")
         return Command(
             update={"verdict": REVISE, "verdict_reason": f"存在 {len(ready)} 个可执行任务",
-                    "tasks": dag.to_dicts(), "ledger_events": ledger.delta()},
+                    "tasks": dag.to_dicts(),
+                    "last_evidence_count": ev_total, "stagnant_rounds": stagnant,
+                    "ledger_events": ledger.delta()},
             goto="scheduler",
         )
 
     # 未完成 = 被依赖卡住、执行失败、或达到轮次上限时还没轮到的任务
-    unfinished = [t.task_id for t in dag.tasks.values() if t.status != "DONE"]
+    unfinished = [t.task_id for t in dag.tasks.values() if t.status != "COMPLETED"]
     usable = int(support.get("usable_claims", 0))
 
     if usable == 0:
@@ -751,6 +856,7 @@ def judge_node(state: ResearchStateDict) -> Command:
     ledger.append(VERDICT, round_no=round_no, verdict=verdict, reason=reason)
     return Command(
         update={"verdict": verdict, "verdict_reason": reason,
+                "last_evidence_count": ev_total, "stagnant_rounds": stagnant,
                 "ledger_events": ledger.delta()},
         goto="compiler",
     )
@@ -775,6 +881,7 @@ def compiler_node(state: ResearchStateDict) -> ResearchStateDict:
     ledger = _ledger(state)
 
     catalog = SourceCatalog(sources, evidences)
+    all_claims = state.get("claims", [])
     usable = [c for c in claims if c.get("status") in (SUPPORTED, PARTIALLY_SUPPORTED)]
     catalog_text = catalog.render_for_prompt(usable)
 
@@ -798,7 +905,7 @@ def compiler_node(state: ResearchStateDict) -> ResearchStateDict:
     report = llm.invoke([HumanMessage(content=base_prompt)]).content.strip()
 
     verifier = CitationVerifier(catalog)
-    result = verifier.verify(report, usable)
+    result = verifier.verify(report, all_claims)
     issues = result["issues"]
 
     blocking = [i for i in issues if i["issue_type"] in (UNKNOWN_REF, UNVERIFIED_EVIDENCE)]
@@ -810,8 +917,27 @@ def compiler_node(state: ResearchStateDict) -> ResearchStateDict:
             + feedback
         )
         report = llm.invoke([HumanMessage(content=retry_prompt)]).content.strip()
-        result = verifier.verify(report, usable)
+        result = verifier.verify(report, all_claims)
         issues = result["issues"]
+
+    # §44 引用闭环绑定：草稿句子 → Claim ID → Evidence IDs
+    binder = CitationBinder(catalog, all_claims)
+    binding = binder.bind(report)
+
+    # §48 未支撑声明检测：禁止 UNSUPPORTED/CONTRADICTED 声明作为事实写入正文
+    detector = UnsupportedClaimDetector(all_claims)
+    unsupported_violations, sanitized = detector.detect_and_sanitize(report)
+    if unsupported_violations:
+        warn = (
+            "\n\n## 未支撑声明警示（不作为事实结论，需人工复核）\n"
+            + "\n".join(
+                f"- 「{v['text']}」（支撑状态：{v['status']}）" for v in unsupported_violations
+            )
+        )
+        sanitized = sanitized + warn
+        ledger.append(UNSUPPORTED_CLAIM, count=len(unsupported_violations),
+                      claim_ids=[v["claim_id"] for v in unsupported_violations])
+    report = sanitized
 
     references = catalog.render_references(used_only=True,
                                            used_source_ids=result["used_source_ids"])
@@ -822,11 +948,12 @@ def compiler_node(state: ResearchStateDict) -> ResearchStateDict:
     ledger.append(REPORT_COMPILED, verdict=verdict,
                   citations=len(result["refs"]),
                   citation_issues=len(issues),
-                  used_sources=len(result["used_source_ids"]))
+                  used_sources=len(result["used_source_ids"]),
+                  unsupported_claims=len(unsupported_violations))
 
     # 局限说明：由程序按任务完成情况与证据校验结果生成，不由模型自己声明
     limitations = ""
-    unfinished = [t.get("task_id", "") for t in state.get("tasks", []) if t.get("status") != "DONE"]
+    unfinished = [t.get("task_id", "") for t in state.get("tasks", []) if t.get("status") != "COMPLETED"]
     notes: list[str] = []
     if unfinished:
         notes.append(f"未完成任务 {len(unfinished)} 个（{', '.join(unfinished)}），报告未覆盖这些方面")
@@ -843,6 +970,8 @@ def compiler_node(state: ResearchStateDict) -> ResearchStateDict:
         "report_sections": [{"title": "完整报告", "content": report,
                              "sources": result["used_source_ids"]}],
         "citation_issues": issues,
+        "citation_binding": binding,
+        "unsupported_violations": unsupported_violations,
         "trace": trace,
         "ledger_events": ledger.delta(),
     }

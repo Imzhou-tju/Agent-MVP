@@ -17,12 +17,16 @@ from typing import Iterable
 PENDING = "PENDING"
 READY = "READY"
 RUNNING = "RUNNING"
-DONE = "DONE"
+COMPLETED = "COMPLETED"
 FAILED = "FAILED"
 BLOCKED = "BLOCKED"
+SKIPPED = "SKIPPED"
 REOPENED = "REOPENED"
 
-TERMINAL_STATES = (DONE, FAILED)
+# 向后兼容：部分调用方/测试仍使用 DONE 字面量
+DONE = COMPLETED
+
+TERMINAL_STATES = (COMPLETED, FAILED, SKIPPED)
 
 # 单轮 DAG Repair 允许新增的任务数上限，防止 Critic 一次扩出大量任务
 MAX_REPAIR_TASKS = 3
@@ -43,6 +47,9 @@ class ResearchTask:
     status: str = PENDING
     round_added: int = 0
     reopen_count: int = 0
+    # 修订任务（§33）：记录它因哪个任务、第几轮产生
+    parent_task_id: str = ""
+    revision_round: int = 0
     notes: str = ""
 
     @classmethod
@@ -71,6 +78,8 @@ class ResearchTask:
             "status": self.status,
             "round_added": self.round_added,
             "reopen_count": self.reopen_count,
+            "parent_task_id": self.parent_task_id,
+            "revision_round": self.revision_round,
             "notes": self.notes,
         }
 
@@ -104,6 +113,43 @@ class ResearchPacket:
         }
 
 
+@dataclass
+class ResearchPlan:
+    """Planner 的显式产出（§4.1）：研究目标 + 约束 + 任务 DAG。
+
+    ResearchPlan 持有 objective / constraints / source_policy / success_criteria，
+    任务以 ResearchTask 列表形式存在；调度器消费的仍是 TaskDAG（由 tasks 构建）。
+    """
+
+    plan_id: str = ""
+    objective: str = ""
+    constraints: str = ""
+    source_policy: str = ""
+    success_criteria: str = ""
+    tasks: list[ResearchTask] = field(default_factory=list)
+    task_dicts: list[dict] = field(default_factory=list)  # 序列化视图
+
+    def to_dict(self) -> dict:
+        return {
+            "plan_id": self.plan_id,
+            "objective": self.objective,
+            "constraints": self.constraints,
+            "source_policy": self.source_policy,
+            "success_criteria": self.success_criteria,
+            "tasks": [t.to_dict() for t in self.tasks],
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ResearchPlan":
+        known = {f for f in cls.__dataclass_fields__}
+        kwargs = {k: v for k, v in (d or {}).items() if k in known}
+        tasks = [ResearchTask.from_dict(t) for t in (kwargs.get("tasks") or [])]
+        kwargs["tasks"] = tasks
+        plan = cls(**kwargs)
+        plan.task_dicts = [t.to_dict() for t in tasks]
+        return plan
+
+
 class TaskDAG:
     """任务图：状态推进与依赖判定，全部为确定性逻辑。"""
 
@@ -134,7 +180,7 @@ class TaskDAG:
     def refresh(self) -> None:
         """按依赖完成情况把 PENDING / BLOCKED / REOPENED 推进到 READY 或 BLOCKED。"""
         for task in self.tasks.values():
-            if task.status in (RUNNING, DONE, FAILED):
+            if task.status in (RUNNING, COMPLETED, FAILED, SKIPPED):
                 continue
             if self._deps_satisfied(task):
                 task.status = READY
@@ -144,7 +190,7 @@ class TaskDAG:
     def _deps_satisfied(self, task: ResearchTask) -> bool:
         for dep in task.dependencies:
             dep_task = self.tasks.get(dep)
-            if dep_task is None or dep_task.status != DONE:
+            if dep_task is None or dep_task.status != COMPLETED:
                 return False
         return True
 
@@ -162,7 +208,7 @@ class TaskDAG:
     def mark_done(self, task_ids: Iterable[str]) -> None:
         for tid in task_ids:
             if tid in self.tasks:
-                self.tasks[tid].status = DONE
+                self.tasks[tid].status = COMPLETED
 
     def mark_failed(self, task_ids: Iterable[str]) -> None:
         for tid in task_ids:
@@ -202,7 +248,7 @@ class TaskDAG:
     def _invalidate_downstream(self, task_id: str) -> None:
         for tid in self.downstream(task_id):
             t = self.tasks[tid]
-            if t.status == DONE:
+            if t.status == COMPLETED:
                 t.status = REOPENED
                 t.reopen_count += 1
 

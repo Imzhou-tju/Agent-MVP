@@ -71,8 +71,15 @@ class Claim:
     claim_id: str
     text: str = ""
     claim_type: str = FACT
-    scope: str = ""                 # 适用对象/范围，如 "仅针对 2020 年后的中文文献"
+    scope: str = ""                 # 适用对象/范围的自然语言描述
     conditions: str = ""            # 成立条件，如 "在未做数据增强的前提下"
+    # 结构化 scope（§24）：供 ConflictDetector 做确定性比较。
+    # 至少包含 dataset / metric / task / protocol 等关键字段时才有可比性。
+    scope_fields: dict = field(default_factory=dict)
+    # 极性 / 取值（§25-28）：由 LLM 在抽取时给出，用于冲突判定。
+    # polarity ∈ {positive, negative, neutral, ""}；value 为可比数值（如 "2.1%"）。
+    polarity: str = ""
+    value: str = ""
     task_id: str = ""
     evidence_ids: list[str] = field(default_factory=list)
     status: str = UNSUPPORTED
@@ -86,6 +93,9 @@ class Claim:
             "claim_type": self.claim_type,
             "scope": self.scope,
             "conditions": self.conditions,
+            "scope_fields": dict(self.scope_fields),
+            "polarity": self.polarity,
+            "value": self.value,
             "task_id": self.task_id,
             "evidence_ids": list(self.evidence_ids),
             "status": self.status,
@@ -100,6 +110,7 @@ class Claim:
         c.claim_id = c.claim_id or make_claim_id(c.text)
         c.claim_type = c.claim_type if c.claim_type in CLAIM_TYPES else _FALLBACK_TYPE
         c.evidence_ids = [str(x) for x in (c.evidence_ids or []) if x]
+        c.scope_fields = dict(c.scope_fields or {})
         return c
 
 

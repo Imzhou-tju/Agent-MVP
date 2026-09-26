@@ -25,6 +25,8 @@ EVIDENCE_EXTRACTED = "evidence_extracted"
 EVIDENCE_VERIFIED = "evidence_verified"
 CLAIM_ADDED = "claim_added"
 ISSUE_FOUND = "issue_found"
+REVISION_CREATED = "revision_created"
+UNSUPPORTED_CLAIM = "unsupported_claim"
 VERDICT = "verdict"
 REPORT_COMPILED = "report_compiled"
 

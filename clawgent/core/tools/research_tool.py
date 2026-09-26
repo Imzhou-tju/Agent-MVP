@@ -36,6 +36,7 @@ def deep_research(query: str, context: str = "", max_revisions: int = 2) -> str:
         "research_context": context,
         "max_revisions": max_revisions,
         "tasks": [],
+        "plan": {},
         "round_no": 0,
         "task_results": [],
         "sources": [],
@@ -43,10 +44,13 @@ def deep_research(query: str, context: str = "", max_revisions: int = 2) -> str:
         "claims": [],
         "relations": [],
         "issues": [],
+        "review": {},
         "repaired_issue_ids": [],
         "searched_queries": [],
         "source_texts": {},
         "ledger_events": [],
+        "last_evidence_count": 0,
+        "stagnant_rounds": 0,
     }
     try:
         # 子图是异步图，在同步 tool 里运行

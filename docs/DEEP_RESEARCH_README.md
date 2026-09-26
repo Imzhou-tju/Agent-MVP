@@ -152,14 +152,22 @@ Claim 的支撑状态不由模型自评，也不再由启发式公式计算。�
 | 类型 | 说明 |
 |------|------|
 | `MISSING_EVIDENCE` | 声明缺少证据 |
-| `UNSUPPORTED_CLAIM` | 声明的证据未通过原文校验 |
-| `CONFLICT` | 证据之间存在矛盾 |
+| `UNVERIFIED_EVIDENCE` | 证据未通过原文校验 |
+| `UNSUPPORTED_CLAIM` | 声明无可用证据（UNSUPPORTED / CONTRADICTED） |
+| `WEAK_SOURCE` | 来源质量不足 |
+| `CONTRADICTORY_EVIDENCE` | 证据之间存在矛盾（含确定性冲突检测） |
+| `SCOPE_MISMATCH` | 结论适用范围不一致（确定性范围检测） |
+| `INCOMPLETE_TASK` | 任务未完成 |
+| `DUPLICATE_RESEARCH` | 重复研究 |
 | `COVERAGE_GAP` | 研究问题有未被覆盖的方面 |
-| `SOURCE_QUALITY` | 来源质量不足 |
-| `OUTDATED_SOURCE` | 来源过旧 |
 | `LOGIC_GAP` | 从证据到结论的推理跳跃 |
 
-每个问题带 `severity`、`target_type/target_id`（作用于哪条声明或哪个任务）与 `suggested_action`（`add_task` / `reopen_task` / `none`）。`issue_id` 由 `(类型, 目标, 描述)` 哈希得到，下一轮重复提出同一问题时 id 相同。
+每个问题带 `severity`、`target_type/target_id`、`target_claim_id` / `target_task_id`、
+`recommended_action`（`add_task` / `reopen_task` / `none`）、`required_evidence`、`priority`。
+`issue_id` 由 `(类型, 目标, 描述)` 哈希得到，下一轮重复提出同一问题时 id 相同。
+
+确定性发现的冲突（§25-28）与范围不一致由 `ConflictDetector` 计算，作为 `CONTRADICTORY_EVIDENCE` /
+`SCOPE_MISMATCH` 类问题写入，其 `recommended_action=none`（不触发补任务，仅作提示）。
 
 ---
 
@@ -193,11 +201,18 @@ Claim 的支撑状态不由模型自评，也不再由启发式公式计算。�
 
 1. 建立 `SourceCatalog`：把 `source_id / evidence_id` 编成 `[S1] / [E3]` 短编号，模型只用编号引用，不需要抄写 URL
 2. 模型按编号写报告
-3. `CitationVerifier` 校验：编号是否存在、引用的证据是否通过校验、可用声明是否被引用
+3. `CitationVerifier` 校验（§45 在原文基础上新增三道闭环校验）：编号是否存在、引用的证据是否通过校验、
+   证据引用的来源是否登记在 Source Catalog（`source_missing`）、证据是否归属于某个已登记 Claim
+   （`evidence_orphan`）、证据归属的 Claim 是否存在（`claim_missing`）、可用声明是否被引用
 4. 校验出 `unknown_ref` / `unverified_evidence` 时，把问题清单反馈给模型重跑一次（最多 1 次）
 5. 程序追加"参考来源"列表与"本报告局限"小节
+6. 成文后由 `CitationBinder`（§44）建立"草稿句子 → Claim → Evidence → Source"闭环，
+   并统计未被引用的悬挂证据与未闭合 Claim（随 `citation_binding` 进入产出，供审计）
+7. `UnsupportedClaimDetector`（§48）扫描正文，把 UNSUPPORTED / CONTRADICTED 声明从正文移除，
+   并单列到"未支撑声明警示"小节，确保未支撑结论不被当作事实输出（§49）
 
-局限小节由程序生成，内容包括：未完成任务数量与 id、未通过校验的证据条数、可用声明不足提示。
+局限小节由程序生成，内容包括：未完成任务数量与 id、未通过校验的证据条数、可用声明不足提示、
+以及被检测器移出正文的未支撑声明清单。
 
 ---
 
@@ -248,11 +263,78 @@ clawgent/core/research/
 ├── dag.py        # ResearchTask / ResearchPacket / TaskDAG（确定性调度）
 ├── evidence.py   # Source / SourceRegistry / Evidence / EvidenceVerifier
 ├── claim.py      # Claim / ClaimRelation / ClaimGraph（支撑状态推导）
-├── citation.py   # SourceCatalog / CitationVerifier（引用目录与校验）
+├── conflict.py   # ConflictDetector（§25-28 确定性冲突/范围检测）
+├── review.py     # ResearchReview / build_review（§29 确定性评审快照）
+├── citation.py   # SourceCatalog / CitationVerifier / CitationBinder / UnsupportedClaimDetector
 ├── ledger.py     # ResearchLedger / build_trace（过程记录与回溯）
 ├── search.py     # hybrid_search：学术MCP + Tavily + RAG 三路并发
 └── academic.py   # 学术 MCP 客户端（arXiv / Semantic Scholar / PubMed）
 ```
 
-测试：`tests/test_research_dag.py`（确定性逻辑）、`tests/test_research_flow.py`（离线整链路，不联网）。
+测试：`tests/test_research_dag.py`（确定性逻辑）、`tests/test_research_flow.py`（离线整链路，不联网）、
+`tests/test_research_scenarios.py`（14 个核心闭环场景 + 检测器，离线、无需 langgraph）。
 触发入口：`clawgent/core/tools/research_tool.py` → `deep_research(query)` 工具。
+
+---
+
+## 核心闭环补全实现（补实现，2026-09）
+
+在 `research-dag` 分支既有 DAG 调度 + Evidence→Claim→Source 溯源骨架之上，把"调研核心闭环"
+从多个散点能力补成端到端闭合：问题→计划/DAG→调度→任务→来源/检索→证据→校验→声明→
+声明-证据关系→评审→修订→裁决→成文→引用闭合→未支撑拦截→可溯源报告。约束：不下载模型、
+代码保持精简、测试以离线确定性为主（API 未必可用）。
+
+### 修改/新增文件清单与用途
+
+| 文件 | 动作 | 用途 |
+|------|------|------|
+| `dag.py` | 改 | `DONE` 增加 `COMPLETED`/`SKIPPED` 别名；`ResearchTask` 增加 `parent_task_id`/`revision_round`；新增 `ResearchPlan`（§4.1） |
+| `claim.py` | 改 | `Claim` 增加 `scope_fields`/`polarity`/`value`（供 `ConflictDetector` 做确定性比较，§24-28） |
+| `state.py` | 改 | 新增裁决 `COMPILE_WITH_LIMITATIONS`；状态增加 `plan`/`review`/`last_evidence_count`/`stagnant_rounds` |
+| `conflict.py` | 新增 | `ConflictDetector` + `detect_pairwise`：四类判定 `NO_CONFLICT`/`DIRECT_CONFLICT`/`SCOPE_MISMATCH`/`POTENTIAL_CONFLICT`（§25-28），纯确定性，无 LLM |
+| `review.py` | 新增 | `ResearchReview` + `build_review`：基于支撑状态与 `ConflictDetector` 计算覆盖率/未支撑/冲突/范围不一致（§29） |
+| `citation.py` | 改 | 新增 `CitationBinder`（§44 闭环）、`CitationRenderer`（§47）、`UnsupportedClaimDetector`（§48）；`CitationVerifier` 增加 §45 三道闭环校验；新增 `source_missing`/`evidence_orphan`/`claim_missing` |
+| `ledger.py` | 改 | 新增事件 `UNSUPPORTED_CLAIM` |
+| `nodes.py` | 改 | `planner_node` 构建 `ResearchPlan`；`review_node` 用 `build_review` + 确定性冲突问题；`repair_node` 修订任务命名/去重 + `REVISION_CREATED`；`judge_node` 进展门控（ stagnant_rounds ）+ `COMPILE_WITH_LIMITATIONS`；`compiler_node` 接入 `CitationBinder` 与 `UnsupportedClaimDetector` |
+| `research_tool.py` | 改 | 初始状态补 `plan`/`review`/`last_evidence_count`/`stagnant_rounds` |
+| `tests/test_research_scenarios.py` | 新增 | 14 个核心场景 + 检测器/Plan 往返，共 19 个用例，离线确定性 |
+
+### 架构变化（Before → After）
+
+| 维度 | Before | After |
+|------|--------|-------|
+| 冲突/范围判断 | 无确定性判定，靠模型在抽取/评审时用自然语言描述 | `ConflictDetector`（§25-28）：基于 `scope_fields`+`polarity`+`value` 给出四类结果，同方法不同 dataset → `SCOPE_MISMATCH`（非直接冲突） |
+| 评审结构 | Review 输出自由 JSON，含 7 类旧问题类型 | 新增 `ResearchReview` 快照（§29）+ 10 类问题（§30），每个问题带 `recommended_action`/`required_evidence`/`priority`/`target_claim_id`/`target_task_id`（§31） |
+| 修订任务 | 仅 `add_task`/`reopen_task`，无修订溯源字段 | `ResearchTask` 带 `parent_task_id`/`revision_round`（§33），命名 `{parent}-R{round}` 或 `R{round}-{n}`，按 `issue_id` 去重（§34） |
+| 终止裁决 | 仅 REVISE/COMPILE/ABORT | 增加进展门控（§38）：连续两轮 `new_evidence==0` 强制终止为 `COMPILE_WITH_LIMITATIONS`/`ABORT_WITH_LIMITATIONS` |
+| 引用闭合 | `CitationVerifier` 只查编号存在 + 证据可引用 | 增加 §44 `CitationBinder`（句子→Claim→Evidence→Source）与 §45 三道闭环校验（来源登记 / 证据归属 Claim / Claim 存在） |
+| 未支撑拦截 | 无 | §48 `UnsupportedClaimDetector`：UNSUPPORTED/CONTRADICTED 声明从正文移除并单列警示（§49） |
+| 研究计划 | Planner 直接产出任务列表 | 新增 §4.1 `ResearchPlan`（plan_id/objective/constraints/tasks），结构化存储并进入 state |
+
+### 测试结果
+
+- 用例：`tests/test_research_scenarios.py`，共 **19** 个，全部通过（离线、`unittest`，无需 langgraph）。
+- 覆盖的 14 个场景：DAG 正常调度、环检测、依赖失败阻塞、证据伪造（INVALID）、空源（UNVERIFIED）、
+  无证据→UNSUPPORTED、两声明直接冲突、范围不一致、修订任务创建、重复修订拒绝、
+  引用闭环、断引（UNKNOWN_REF）、假源/未登记来源拦截、无证据失败。
+- 额外覆盖：`UnsupportedClaimDetector` 正文净化、ResearchPlan 往返。
+- 加载方式：优先从正式包导入；环境缺 langgraph 时退回合成包加载纯逻辑子模块（`_load_pure`），
+  绕开 `research/__init__` 对 graph 的导入，保证离线可跑。
+
+### 明确未完项（如实标注）
+
+1. **整链路集成测试未跑**：14 个场景测试只覆盖纯逻辑模块（dag/claim/evidence/conflict/review/citation/ledger），
+   不调用 LangGraph 整图。新组件在 `compiler_node` 内的实际串联（CitationBinder / UnsupportedClaimDetector 在运行时触发）
+   已落地但仅在单元测试层面验证，未在缺 API 环境下跑 `test_research_flow.py` 整链路。
+2. **修订去重的单元覆盖偏窄**：`repair_node` 的"按 issue_id 去重、单轮上限 3、命名冲突后缀规避"已实现，
+   但离线测试只在 DAG 层验证了"相同 task_id 被拒"，未对 repair 编排逻辑做端到端断言（需 LLM/网络）。
+3. **`CitationRenderer`（§47）已实现但未接线**：`CitationRenderer.render_closure` 可用于把闭环渲染成附录，
+   当前 `compiler_node` 只返回 `citation_binding` 结构、未调用该渲染器生成可视化附录。属可选项。
+4. **`ResearchPlan` 已入 state 但未驱动额外校验**：目前仅作为结构化产出存储，尚未用作"计划覆盖率"校验输入。
+5. **§46 禁止模型自由生成 URL**：已通过结构性保证（Evidence 必须引用 `SourceRegistry` 中已登记 `source_id`，
+   未登记直接判 INVALID），未单独在 compiler 再加一道运行时白名单检查。
+6. **`POTENTIAL_CONFLICT` 的呈现**：`build_review` 把 `DIRECT_CONFLICT` 与 `POTENTIAL_CONFLICT` 一并归入 `contradictions`，
+   与 §28 "同 dataset/metric 不同数值→POTENTIAL_CONFLICT" 一致；若希望单独区分提示，可再细分，当前未做。
+
+> 以上未完项均为"已实现了代码逻辑、但测试/接线层面未做满"，不影响已通过单元测试 correctness；
+> 真正依赖外部 API 的整链路行为需在有 key 的环境中用 `tests/test_research_flow.py` 复验。

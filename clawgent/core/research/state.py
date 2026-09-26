@@ -28,6 +28,7 @@ from typing import Annotated, Any, Iterable, TypedDict
 
 # Judge 的三种裁决
 COMPILE = "COMPILE"
+COMPILE_WITH_LIMITATIONS = "COMPILE_WITH_LIMITATIONS"
 REVISE = "REVISE"
 ABORT_WITH_LIMITATIONS = "ABORT_WITH_LIMITATIONS"
 
@@ -166,6 +167,7 @@ class ResearchState:
 
         # Planner：Research Task DAG
         self.tasks: list[dict] = []
+        self.plan: dict = field(default_factory=dict)   # ResearchPlan.to_dict()
         self.plan_summary: str = ""
         self.round_no: int = 0
 
@@ -180,6 +182,7 @@ class ResearchState:
 
         # Review
         self.issues: list[dict] = []
+        self.review: dict = field(default_factory=dict)  # ResearchReview.to_dict()
 
         # Judge
         self.verdict: str = ""
@@ -208,6 +211,7 @@ class ResearchStateDict(TypedDict, total=False):
     # ---------------- Planner ----------------
     # DAG 是可变结构：Scheduler 推进状态、Repair 局部增删，故按 task_id 合并
     tasks: Annotated[list[dict], merge_tasks]
+    plan: dict                              # ResearchPlan.to_dict()，覆盖合并
     plan_summary: str
     round_no: int
 
@@ -223,6 +227,7 @@ class ResearchStateDict(TypedDict, total=False):
 
     # ---------------- Review ----------------
     issues: Annotated[list[dict], merge_issues]
+    review: dict                           # ResearchReview.to_dict()，覆盖合并
     # 已经被 repair 处理过的 issue_id，避免同一问题每轮都被拿来补任务
     repaired_issue_ids: Annotated[list[str], merge_str_list]
 
@@ -230,6 +235,9 @@ class ResearchStateDict(TypedDict, total=False):
     verdict: str
     verdict_reason: str
     evidence_support: dict
+    # 进展检测（§38）：记录上一轮证据总数与连续无新增的轮数
+    last_evidence_count: int
+    stagnant_rounds: int
 
     # ---------------- Compiler ----------------
     final_report: str
