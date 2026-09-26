@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Research 可观测 Dashboard</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --panel: #ffffff; --border: #e3e5e8; --text: #1f2328;
+    --muted: #6a737d; --accent: #0d6efd; --red: #d9534f; --green: #2e9e5b;
+    --amber: #e6a23c; --purple: #8b5cf6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: var(--bg); color: var(--text); font-size: 14px; }
+  header { background: var(--panel); border-bottom: 1px solid var(--border); padding: 12px 20px;
+           display: flex; align-items: center; gap: 16px; position: sticky; top: 0; z-index: 10; }
+  header h1 { font-size: 16px; font-weight: 600; }
+  header .filters { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  select, button, input { padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px;
+                         background: #fff; font-size: 13px; }
+  button { cursor: pointer; background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.ghost { background: #fff; color: var(--text); border-color: var(--border); }
+  main { padding: 16px 20px; display: grid; grid-template-columns: 300px 1fr; gap: 16px;
+         max-width: 1400px; margin: 0 auto; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+           padding: 14px; }
+  .panel h2 { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+  #run-list { overflow-y: auto; }
+  .run-item { padding: 10px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px;
+              cursor: pointer; }
+  .run-item:hover { border-color: var(--accent); }
+  .run-item.active { border-color: var(--accent); background: #f0f6ff; }
+  .run-item .rid { font-weight: 600; font-size: 13px; word-break: break-all; }
+  .run-item .meta { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; color: #fff; }
+  .badge.SUCCESS { background: var(--green); }
+  .badge.FAILED { background: var(--red); }
+  .badge.RUNNING { background: var(--amber); }
+  .badge.UNKNOWN { background: var(--muted); }
+  #detail { min-height: 400px; }
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+  .stat { border: 1px solid var(--border); border-radius: 6px; padding: 10px; }
+  .stat .k { color: var(--muted); font-size: 12px; }
+  .stat .v { font-size: 20px; font-weight: 600; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; }
+  .timeline-row { display: flex; gap: 10px; padding: 6px 0; border-bottom: 1px solid #f0f0f0;
+                  align-items: baseline; }
+  .timeline-row .t { color: var(--muted); font-size: 12px; width: 80px; flex-shrink: 0; }
+  .timeline-row .ev { font-weight: 500; }
+  .timeline-row .nd { color: var(--accent); font-size: 12px; }
+  .dag-node { border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin: 6px;
+              display: inline-block; min-width: 120px; font-size: 12px; }
+  .dag-node.COMPLETED { border-color: var(--green); }
+  .dag-node.FAILED { border-color: var(--red); }
+  .dag-node.RUNNING { border-color: var(--accent); }
+  .dag-node.REOPENED { border-color: var(--amber); }
+  .dag-node.SKIPPED { border-color: var(--muted); }
+  .dag-node.PENDING { border-color: var(--muted); }
+  .tabbar { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+  .tabbar button { background: none; border: none; color: var(--muted); padding: 8px 12px;
+                   border-radius: 0; border-bottom: 2px solid transparent; }
+  .tabbar button.on { color: var(--accent); border-bottom-color: var(--accent); }
+  .muted { color: var(--muted); font-size: 12px; }
+  .empty { color: var(--muted); padding: 20px; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Research 可观测 Dashboard</h1>
+  <div class="filters">
+    <select id="status-filter" onchange="loadRuns()">
+      <option value="">全部状态</option>
+      <option value="SUCCESS">SUCCESS</option>
+      <option value="FAILED">FAILED</option>
+      <option value="RUNNING">RUNNING</option>
+      <option value="UNKNOWN">UNKNOWN</option>
+    </select>
+    <button onclick="loadRuns()">刷新</button>
+  </div>
+</header>
+<main>
+  <div id="run-list" class="panel"><h2>Run 列表</h2><div class="empty">加载中…</div></div>
+  <div id="detail" class="panel"><h2>Run 详情</h2><div class="empty">选择左侧 Run 查看详情</div></div>
+</main>
+<script>
+let currentRun = null;
+
+async function api(path) {
+  const r = await fetch(path);
+  return r.json();
+}
+
+async function loadRuns() {
+  const status = document.getElementById('status-filter').value;
+  const q = status ? `?status=${encodeURIComponent(status)}` : '';
+  const data = await api('/api/runs' + q);
+  const box = document.getElementById('run-list');
+  if (!data.runs || !data.runs.length) {
+    box.innerHTML = '<h2>Run 列表</h2><div class="empty">暂无 Run</div>';
+    return;
+  }
+  let html = '<h2>Run 列表</h2>';
+  for (const run of data.runs) {
+    const active = currentRun === run.run_id ? 'active' : '';
+    html += `<div class="run-item ${active}" onclick="selectRun('${run.run_id}')">
+      <div class="rid">${run.run_id}</div>
+      <div class="meta">${run.start_time || ''}</div>
+      <div class="meta">${(run.total_duration/1000).toFixed(1)}s ·
+        ${run.total_tasks || 0} 任务 · ${run.evidence_count || 0} 证据 ·
+        <span class="badge ${run.final_status}">${run.final_status}</span></div>
+    </div>`;
+  }
+  box.innerHTML = html;
+}
+
+function selectRun(id) {
+  currentRun = id;
+  loadRuns();
+  renderDetail(id);
+}
+
+async function renderDetail(id) {
+  const detail = await api('/api/runs/' + encodeURIComponent(id));
+  const box = document.getElementById('detail');
+  if (detail.error) { box.innerHTML = `<h2>Run 详情</h2><div class="empty">${detail.error}</div>`; return; }
+
+  const verdict = detail.verdict || detail.termination_reason || '';
+  const claimCount = (detail.supported_claims||0)+(detail.partial_claims||0)
+                    +(detail.unsupported_claims||0)+(detail.contradicted_claims||0);
+
+  box.innerHTML = `
+    <h2>Run 详情</h2>
+    <div class="tabbar">
+      <button class="on" onclick="switchTab(this,'overview')">总览</button>
+      <button onclick="switchTab(this,'timeline')">时间线</button>
+      <button onclick="switchTab(this,'dag')">任务 DAG</button>
+      <button onclick="switchTab(this,'trace')">证据溯源</button>
+      <button onclick="switchTab(this,'rag')">RAG / 多跳</button>
+      <button onclick="switchTab(this,'reliability')">可靠性</button>
+    </div>
+    <div id="tab-overview">
+      <div class="muted" style="margin-bottom:10px">Run ID: ${detail.run_id} · 问题：${detail.query || ''}</div>
+      <div class="stat-grid">
+        ${stat('总耗时', (detail.total_duration/1000).toFixed(1)+'s')}
+        ${stat('最终状态', `<span class="badge ${detail.final_status}">${detail.final_status}</span>`)}
+        ${stat('裁决', verdict || '-')}
+        ${stat('任务', `${detail.completed_tasks||0}/${detail.total_tasks||0} 完成`)}
+        ${stat('失败任务', detail.failed_tasks||0)}
+        ${stat('重开任务', detail.reopened_tasks||0)}
+        ${stat('跳过任务', detail.skipped_tasks||0)}
+        ${stat('LLM 调用', detail.total_llm_calls||0)}
+        ${stat('Tool 调用', detail.total_tool_calls||0)}
+        ${stat('Retry', detail.total_retries||0)}
+        ${stat('Fallback', detail.total_fallbacks||0)}
+        ${stat('来源', detail.source_count||0)}
+        ${stat('证据', detail.evidence_count||0)}
+        ${stat('声明', claimCount)}
+        ${stat('支撑', detail.supported_claims||0)}
+        ${stat('部分支撑', detail.partial_claims||0)}
+        ${stat('无支撑', detail.unsupported_claims||0)}
+        ${stat('矛盾', detail.contradicted_claims||0)}
+        ${stat('评审问题', detail.review_issue_count||0)}
+        ${stat('修补轮次', detail.repair_rounds||0)}
+        ${stat('RAG 迭代', detail.rag_iterations||0)}
+        ${stat('多跳迭代', detail.multi_hop_iterations||0)}
+      </div>
+    </div>
+    <div id="tab-timeline" style="display:none"></div>
+    <div id="tab-dag" style="display:none"></div>
+    <div id="tab-trace" style="display:none"></div>
+    <div id="tab-rag" style="display:none"></div>
+    <div id="tab-reliability" style="display:none"></div>
+  `;
+
+  renderTimeline(detail.events || []);
+  renderDag(detail.dag || []);
+  renderTrace(detail.trace || []);
+  renderRag(detail.rag || {});
+  renderReliability(detail.reliability || {});
+}
+
+function stat(k, v) { return `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`; }
+
+function switchTab(btn, name) {
+  document.querySelectorAll('.tabbar button').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  for (const t of ['overview','timeline','dag','trace','rag','reliability']) {
+    document.getElementById('tab-'+t).style.display = (t===name) ? '' : 'none';
+  }
+}
+
+function renderTimeline(events) {
+  const box = document.getElementById('tab-timeline');
+  if (!events.length) { box.innerHTML = '<div class="empty">无事件</div>'; return; }
+  let html = '<table><tr><th>时间</th><th>事件</th><th>节点</th><th>任务</th><th>状态</th><th>耗时</th></tr>';
+  for (const e of events) {
+    html += `<tr><td class="muted">${(e.timestamp||'').slice(11,19)}</td>
+      <td>${e.event_type}</td><td class="nd">${e.node||''}</td><td>${e.task_id||''}</td>
+      <td>${e.status||''}</td><td>${e.duration_ms? e.duration_ms+'ms':''}</td></tr>`;
+  }
+  box.innerHTML = html + '</table>';
+}
+
+function renderDag(tasks) {
+  const box = document.getElementById('tab-dag');
+  if (!tasks.length) { box.innerHTML = '<div class="empty">无任务 DAG</div>'; return; }
+  let html = '<div>';
+  for (const t of tasks) {
+    html += `<div class="dag-node ${t.status}">
+      <div><b>${t.task_id}</b> <span class="muted">${t.task_type||''}</span></div>
+      <div class="muted">${t.status}${t.duration_ms?' · '+t.duration_ms+'ms':''}</div>
+      ${t.dependencies && t.dependencies.length ? '<div class="muted">依赖: '+t.dependencies.join(', ')+'</div>' : ''}
+    </div>`;
+  }
+  box.innerHTML = html + '</div>';
+}
+
+function renderTrace(evidences) {
+  const box = document.getElementById('tab-trace');
+  if (!evidences.length) { box.innerHTML = '<div class="empty">无证据登记事件</div>'; return; }
+  let html = '<table><tr><th>证据</th><th>来源</th><th>校验状态</th><th>声明</th><th>任务</th></tr>';
+  for (const e of evidences) {
+    html += `<tr><td>${e.evidence_id}</td><td>${e.source_id||''}</td>
+      <td>${e.verification_status}</td><td>${e.claim_id||''}</td><td>${e.task_id||''}</td></tr>`;
+  }
+  box.innerHTML = html + '</table>';
+}
+
+function renderRag(rag) {
+  const box = document.getElementById('tab-rag');
+  const mh = rag.multi_hop_iterations || [];
+  const ri = rag.rag_iterations || [];
+  let html = '';
+  if (mh.length) {
+    html += '<h3>多跳迭代</h3><table><tr><th>轮</th><th>查询</th><th>新增证据</th><th>决策</th><th>停止原因</th></tr>';
+    for (const it of mh) {
+      html += `<tr><td>${it.iteration}</td><td>${it.query||''}</td><td>${it.new_evidence_count}</td>
+        <td>${it.action}</td><td>${it.stop_reason||''}</td></tr>`;
+    }
+    html += '</table>';
+  }
+  if (ri.length) {
+    html += '<h3>单轮检索</h3><table><tr><th>查询</th><th>向量</th><th>BM25</th><th>RRF</th><th>过滤后</th><th>充分</th></tr>';
+    for (const r of ri) {
+      html += `<tr><td>${r.query||''}</td><td>${r.vector_result_count??''}</td>
+        <td>${r.bm25_result_count??''}</td><td>${r.rrf_result_count??''}</td>
+        <td>${r.llm_filter_result_count??''}</td><td>${r.sufficiency??''}</td></tr>`;
+    }
+    html += '</table>';
+  }
+  box.innerHTML = html || '<div class="empty">无 RAG 事件</div>';
+}
+
+function renderReliability(rel) {
+  const box = document.getElementById('tab-reliability');
+  box.innerHTML = `<div class="stat-grid">
+    ${stat('Retry', rel.retries||0)}
+    ${stat('Fallback', rel.fallbacks||0)}
+    ${stat('熔断', rel.circuit_breakers||0)}
+  </div>`;
+}
+
+loadRuns();
+</script>
+</body>
+</html>

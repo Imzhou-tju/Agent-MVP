@@ -41,8 +41,14 @@ class JSONLEventLogger:
     def __new__(cls, log_dir: str = "logs"):
         with cls._lock:
             if cls._instance is None:
+                # 优先用 config.AUDIT_LOG_DIR（审计日志目录），否则用默认 logs/
+                try:
+                    from . import config
+                    _dir = getattr(config, "AUDIT_LOG_DIR", "") or log_dir
+                except Exception:
+                    _dir = log_dir
                 cls._instance = super().__new__(cls)
-                cls._instance._init_logger(log_dir)
+                cls._instance._init_logger(_dir)
             return cls._instance
 
     def _init_logger(self, log_dir: str):

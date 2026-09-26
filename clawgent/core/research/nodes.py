@@ -32,6 +32,31 @@ from langchain_openai import ChatOpenAI
 from langgraph.types import Command, Send
 
 from .. import config
+from ..audit import (
+    AGGREGATION,
+    CITATION_VERIFIED,
+    EVIDENCE_REGISTERED,
+    JUDGE_DECISION,
+    PLAN_GATE,
+    REPAIR,
+    REVIEW_ISSUE,
+    RUN_END,
+    RUN_START,
+    STATUS_DEGRADED,
+    STATUS_FAILED,
+    STATUS_SUCCESS,
+    TASK_COMPLETED,
+    TASK_CREATED,
+    TASK_FAILED,
+    TASK_READY,
+    TASK_REOPENED,
+    TASK_SKIPPED,
+    TASK_STARTED,
+    audit_node,
+    bind as audit_bind,
+    emit,
+    set_node_metadata,
+)
 from .claim import (
     CLAIM_TYPES,
     Claim,
@@ -168,6 +193,7 @@ def _evidence_index(state: ResearchStateDict) -> dict[str, dict]:
 # Planner：产出 Research Task DAG
 # ---------------------------------------------------------------------------
 
+@audit_node("planner")
 def planner_node(state: ResearchStateDict) -> Command:
     """把调研问题拆成带依赖关系的任务 DAG。
 
@@ -177,6 +203,12 @@ def planner_node(state: ResearchStateDict) -> Command:
     llm = _get_llm()
     query = state.get("original_query", "")
     context = state.get("research_context", "")
+
+    # 审计：Planner 是第一个节点，run_id 在这里定下来，后续事件靠它串起来
+    run_id = _run_id(state)
+    audit_bind(run_id=run_id, thread_id=str(state.get("thread_id", "") or ""))
+    emit(RUN_START, status=STATUS_SUCCESS,
+         metadata={"query": query, "run_id": run_id})
 
     # SOP 前置（§SOP 介入时机）：先选研究 SOP，再让 Planner 依据 SOP 拆任务。
     # select_sop 是关键词规则，确定性、不调 LLM；无法识别类型时回退 FACT，不阻塞。
@@ -266,6 +298,7 @@ def planner_node(state: ResearchStateDict) -> Command:
     # ---- 计划质量闸门（§Plan Gate，执行前）----
     # SOP(前置已选) → PlanValidator(确定性) → PlanCritic(1次) → Repair(1次) → 门控裁决。
     # 验证就地修补 DAG，结果写入 plan_gate / plan_validation 供追溯。
+    planned_task_count = len(dag.tasks)
     critic = SemanticPlanCritic(llm=llm)
     gate = PlanGate(sop=sop, critic=critic)
     gate_result = gate.run(dag, plan, query=query)
@@ -299,8 +332,33 @@ def planner_node(state: ResearchStateDict) -> Command:
     plan_validation_issues = [i.to_dict() for i in gate_issues
                               if i.recommended_action in ("add_task", "remove_task")]
 
+    # 审计：质量闸门裁决 + 最终任务清单（任务数取 repair/兜底之后的值）
+    _GATE_STATUS = {
+        "ALLOW": STATUS_SUCCESS,
+        "ALLOW_WITH_WARNINGS": STATUS_DEGRADED,
+        "REJECT": STATUS_FAILED,
+    }
+    emit(PLAN_GATE, status=_GATE_STATUS.get(str(gate_dict.get("decision", "")), STATUS_SUCCESS),
+         metadata={
+             "sop_type": sop.sop_type,
+             "planned_task_count": planned_task_count,
+             "final_task_count": len(dag.tasks),
+             "decision": gate_dict.get("decision", ""),
+             "repair_count": int(gate_dict.get("repair_count", 0)),
+             "critic_called": bool(gate_dict.get("critic_called", False)),
+             "critic_failed": bool(gate_dict.get("critic_failed", False)),
+             "fallback_applied": bool(gate_dict.get("fallback_applied", False)),
+             "reject_reasons": gate_dict.get("reject_reasons", []),
+         })
+    for t in dag.tasks.values():
+        emit(TASK_CREATED, task_id=t.task_id, status=STATUS_SUCCESS, metadata={
+            "task_type": t.task_type,
+            "dependencies": list(t.dependencies),
+            "priority": getattr(t, "priority", 1),
+            "round_added": int(getattr(t, "round_added", 0) or 0),
+        })
+
     # 落库：run 主记录 + DAG + 质量闸门快照
-    run_id = _run_id(state)
     _persist(run_id, {
         "original_query": query,
         "research_context": context,
@@ -342,6 +400,7 @@ def _plan_summary(dag: TaskDAG) -> str:
 # Scheduler：按依赖挑 READY 任务（确定性，不调用模型）
 # ---------------------------------------------------------------------------
 
+@audit_node("scheduler")
 def scheduler_node(state: ResearchStateDict) -> Command:
     """挑出依赖已满足且未执行的任务，Send 给 researcher。
 
@@ -351,23 +410,36 @@ def scheduler_node(state: ResearchStateDict) -> Command:
     dag = _dag(state)
     round_no = state.get("round_no", 0)
     ready = dag.ready_tasks()
+    unfinished = [t.task_id for t in dag.tasks.values() if t.status != "COMPLETED"]
 
     if ready:
+        # 审计：每个被 Send 出去的任务单独一条事件，避免只记一个笼统的「Researcher started」
+        for t in ready:
+            emit(TASK_READY, task_id=t.task_id, status=STATUS_SUCCESS,
+                 metadata={"round_no": round_no, "task_type": t.task_type,
+                           "dependencies": list(t.dependencies)})
         dag.mark_running([t.task_id for t in ready])
         ledger = _ledger(state)
         for t in ready:
+            emit(TASK_STARTED, task_id=t.task_id, status=STATUS_SUCCESS,
+                 metadata={"round_no": round_no, "task_type": t.task_type,
+                           "question": t.question})
             ledger.append(TASK_DISPATCHED, task_id=t.task_id, round_no=round_no,
                           question=t.question)
         sends = [
             Send("researcher", {"task": t.to_dict(), "original_query": state.get("original_query", "")})
             for t in ready
         ]
+        set_node_metadata(round_no=round_no, ready_count=len(ready),
+                          dispatched=len(sends), unfinished_count=len(unfinished))
         return Command(
             update={"tasks": dag.to_dicts(), "ledger_events": ledger.delta()},
             goto=sends,
         )
 
     # 无 READY：要么全部完成，要么剩余任务被 FAILED 依赖卡住
+    set_node_metadata(round_no=round_no, ready_count=0, dispatched=0,
+                      unfinished_count=len(unfinished))
     return Command(goto="aggregator")
 
 
@@ -375,6 +447,7 @@ def scheduler_node(state: ResearchStateDict) -> Command:
 # Researcher：执行单个 Task，返回 ResearchPacket
 # ---------------------------------------------------------------------------
 
+@audit_node("researcher")
 async def researcher_node(state: ResearchStateDict) -> ResearchStateDict:
     """执行一个研究任务：检索 → 登记来源 → 抽取声明与引文 → 校验引文。
 
@@ -386,6 +459,10 @@ async def researcher_node(state: ResearchStateDict) -> ResearchStateDict:
     original_query = state.get("original_query", "")
     if not task.task_id:
         task.task_id = str(uuid.uuid4())[:8]
+    # 审计：并发分支里把 task_id 绑到当前协程上下文，后续事件都带上它
+    audit_bind(task_id=task.task_id, run_id=_run_id(state),
+               thread_id=str(state.get("thread_id", "") or ""))
+    _task_started_at = time.perf_counter()
 
     ledger = _ledger(state)
     round_no = state.get("round_no", 0)
@@ -416,6 +493,12 @@ async def researcher_node(state: ResearchStateDict) -> ResearchStateDict:
         task.status = "FAILED"
         ledger.append(TASK_FAILED, task_id=task.task_id, round_no=round_no,
                       reason="检索无结果", queries=queries)
+        emit(TASK_FAILED, task_id=task.task_id, status=STATUS_FAILED,
+             duration_ms=(time.perf_counter() - _task_started_at) * 1000.0,
+             metadata={"task_type": task.task_type, "query_count": len(queries),
+                       "source_count": 0, "evidence_count": 0, "reason": "检索无结果"})
+        set_node_metadata(task_id=task.task_id, final_status="FAILED",
+                          source_count=0, evidence_count=0)
         _persist(_run_id(state), {
             "original_query": original_query,
             "tasks": [task.to_dict()],
@@ -565,6 +648,15 @@ async def researcher_node(state: ResearchStateDict) -> ResearchStateDict:
         ).to_dict())
         ledger.append(CLAIM_ADDED, task_id=task.task_id, claim_id=claim.claim_id,
                       claim_type=claim_type)
+        # 审计：Evidence 只带 id / 状态 / 来源类型，不带正文；claim_id 供溯源反查
+        emit(EVIDENCE_REGISTERED, task_id=task.task_id, status=STATUS_SUCCESS, metadata={
+            "evidence_id": ev.evidence_id,
+            "source_id": source_id,
+            "source_type": src_obj.source_type,
+            "verification_status": ev.verification_status,
+            "claim_id": claim.claim_id,
+            "locator": locator,
+        })
 
     # §8 Claim-Evidence 语义关系判定：quote 是否真的支持 claim。
     # 由模型判定，失败时整体回退到 SUPPORTS（recompute_statuses 缺省也是 SUPPORTS）。
@@ -593,6 +685,22 @@ async def researcher_node(state: ResearchStateDict) -> ResearchStateDict:
     ledger.append(TASK_COMPLETED if packet.status == "COMPLETED" else TASK_FAILED,
                   task_id=task.task_id, round_no=round_no,
                   evidence_count=len(evidence_ids))
+
+    # 审计：任务结束，带本任务的数量摘要与耗时（不写正文、不写 prompt）
+    _task_meta = {
+        "task_type": task.task_type,
+        "query_count": len(queries),
+        "source_count": len(sources_out),
+        "evidence_count": len(evidence_ids),
+        "claim_count": len(claims_out),
+        "final_status": packet.status,
+    }
+    emit(TASK_COMPLETED if packet.status == "COMPLETED" else TASK_FAILED,
+         task_id=task.task_id,
+         status=STATUS_SUCCESS if packet.status == "COMPLETED" else STATUS_FAILED,
+         duration_ms=(time.perf_counter() - _task_started_at) * 1000.0,
+         metadata=_task_meta)
+    set_node_metadata(**_task_meta)
 
     # 落库：本任务登记的来源 / 抽取的证据 / 声明 / 声明-证据关系 / 结果包
     _persist(_run_id(state), {
@@ -660,6 +768,7 @@ def _packet_update(
 # Aggregator：合并、推导支撑状态、统计证据状况（确定性）
 # ---------------------------------------------------------------------------
 
+@audit_node("aggregator")
 def aggregator_node(state: ResearchStateDict) -> ResearchStateDict:
     """合并各 ResearchPacket，并按证据校验结果推导每条 Claim 的支撑状态。
 
@@ -680,6 +789,17 @@ def aggregator_node(state: ResearchStateDict) -> ResearchStateDict:
     support = _support_stats(state.get("evidences", []), claims)
 
     ledger = _ledger(state)
+
+    # 审计：合并结果与 Claim 支撑状态分布（SUPPORTED / PARTIALLY_SUPPORTED /
+    # UNSUPPORTED / CONTRADICTED 分别计数）
+    emit(AGGREGATION, status=STATUS_SUCCESS, metadata={
+        "evidence_count": len(state.get("evidences", [])),
+        "source_count": len(state.get("sources", [])),
+        "claim_count": len(claims),
+        "claim_by_status": support.get("claim_by_status", {}),
+        "evidence_by_status": support.get("evidence_by_status", {}),
+        "usable_claims": support.get("usable_claims", 0),
+    })
 
     # 落库：Aggregator 推导出的 Claim 支撑状态与关联关系
     _persist(_run_id(state), {
@@ -738,6 +858,7 @@ _ISSUE_TYPES = (
 )
 
 
+@audit_node("review")
 def review_node(state: ResearchStateDict) -> ResearchStateDict:
     """评审当前研究状态，输出结构化问题清单（§29）。
 
@@ -868,6 +989,23 @@ def review_node(state: ResearchStateDict) -> ResearchStateDict:
             ledger.append(ISSUE_FOUND, issue_type=gap.issue_type,
                           severity=gap.severity, target_id=gap.target_id)
 
+    # 审计：评审问题清单（总数 + 按类型 + 确定性发现的那几类计数）
+    _issue_by_type: dict[str, int] = {}
+    for i in issues:
+        t = str(i.get("issue_type", ""))
+        _issue_by_type[t] = _issue_by_type.get(t, 0) + 1
+    emit(REVIEW_ISSUE,
+         status=STATUS_DEGRADED if issues else STATUS_SUCCESS,
+         metadata={
+             "issue_count": len(issues),
+             "by_type": _issue_by_type,
+             "weak_evidence": len(getattr(review, "weak_evidence", []) or []),
+             "unsupported_claim": len(getattr(review, "unsupported_claims", []) or []),
+             "contradiction": len(getattr(review, "contradictions", []) or []),
+             "scope_mismatch": len(getattr(review, "scope_mismatches", []) or []),
+             "duplicate_research": len(getattr(review, "duplicate_research", []) or []),
+         })
+
     # 落库：评审产出的结构化问题
     _persist(_run_id(state), {
         "tasks": tasks,
@@ -913,6 +1051,7 @@ def _conflict_issue(pair: dict, issue_type: str, severity: str) -> dict:
 # Repair：局部修改 DAG（确定性）
 # ---------------------------------------------------------------------------
 
+@audit_node("repair")
 def repair_node(state: ResearchStateDict) -> ResearchStateDict:
     """按 Review 的问题清单局部修改 DAG，不重新生成整棵树。
 
@@ -936,6 +1075,9 @@ def repair_node(state: ResearchStateDict) -> ResearchStateDict:
 
     added = 0
     acted: list[str] = []
+    _repair_removed = 0
+    _repair_reopened = 0
+    _repair_dep_changes = 0
     for issue in pending:
         action = issue.get("recommended_action") or issue.get("suggested_action") or "none"
         if action == "reopen_task":
@@ -943,6 +1085,9 @@ def repair_node(state: ResearchStateDict) -> ResearchStateDict:
             if target and dag.reopen(target, reason=issue.get("description", "")):
                 ledger.append(TASK_REOPENED, task_id=target, round_no=round_no,
                               reason=issue.get("description", ""))
+                emit(TASK_REOPENED, task_id=target, status=STATUS_SUCCESS,
+                     metadata={"round_no": round_no, "reason": issue.get("description", "")})
+                _repair_reopened += 1
                 acted.append(issue.get("issue_id", ""))
             continue
 
@@ -954,6 +1099,7 @@ def repair_node(state: ResearchStateDict) -> ResearchStateDict:
                 del dag.tasks[target]
                 ledger.append(TASK_FAILED, task_id=target, round_no=round_no,
                               reason=f"计划验证删除：{issue.get('description','')}")
+                _repair_removed += 1
                 acted.append(issue.get("issue_id", ""))
             continue
 
@@ -1003,6 +1149,17 @@ def repair_node(state: ResearchStateDict) -> ResearchStateDict:
         else:
             print(f"[Repair] 新增任务被拒绝({reason}): {task.task_id}")
 
+    # 审计：每次 Repair 记一轮，带新增/删除/重开任务数与原因（不记正文）
+    emit(REPAIR, status=STATUS_SUCCESS, metadata={
+        "round_no": round_no,
+        "added_tasks": added,
+        "removed_tasks": _repair_removed,
+        "reopened_tasks": _repair_reopened,
+        "dependency_changes": _repair_dep_changes,
+        "issue_count": len(pending),
+        "reasons": [i.get("description", "") for i in pending][:10],
+    })
+
     # 落库：局部修补后的 DAG
     _persist(_run_id(state), {
         "tasks": dag.to_dicts(),
@@ -1022,6 +1179,7 @@ def repair_node(state: ResearchStateDict) -> ResearchStateDict:
 # Judge：裁决（确定性）
 # ---------------------------------------------------------------------------
 
+@audit_node("judge")
 def judge_node(state: ResearchStateDict) -> Command:
     """决定进入下一轮还是成文（§35-38）。
 
@@ -1089,6 +1247,11 @@ def judge_node(state: ResearchStateDict) -> Command:
             reason = f"连续 {stagnant} 轮无新证据，按现有 {usable} 条可用声明成文"
         ledger.append(VERDICT, round_no=round_no, verdict=verdict, reason=reason)
         ledger.append(PROGRESS_LOG, round_no=round_no, payload=progress_entry)
+        emit(JUDGE_DECISION, status=STATUS_SUCCESS, metadata={
+            "decision": verdict, "reason": reason, "round_no": round_no,
+            "unfinished_tasks": len(unfinished_original) + len(unfinished_revision),
+            "stagnant_rounds": stagnant,
+        })
         _persist(_run_id(state), {
             "verdict": verdict, "verdict_reason": reason,
             "tasks": dag.to_dicts(),
@@ -1117,6 +1280,11 @@ def judge_node(state: ResearchStateDict) -> Command:
             reason = f"存在 {len(ready)} 个可执行修订任务（revision），继续局部补查"
         ledger.append(VERDICT, round_no=round_no, verdict=verdict, reason=reason)
         ledger.append(PROGRESS_LOG, round_no=round_no, payload=progress_entry)
+        emit(JUDGE_DECISION, status=STATUS_SUCCESS, metadata={
+            "decision": verdict, "reason": reason, "round_no": round_no,
+            "unfinished_tasks": len(unfinished_original) + len(unfinished_revision),
+            "stagnant_rounds": stagnant,
+        })
         _persist(_run_id(state), {
             "verdict": verdict, "verdict_reason": reason,
             "tasks": dag.to_dicts(),
@@ -1153,6 +1321,11 @@ def judge_node(state: ResearchStateDict) -> Command:
 
     ledger.append(VERDICT, round_no=round_no, verdict=verdict, reason=reason)
     ledger.append(PROGRESS_LOG, round_no=round_no, payload=progress_entry)
+    emit(JUDGE_DECISION, status=STATUS_SUCCESS, metadata={
+        "decision": verdict, "reason": reason, "round_no": round_no,
+        "unfinished_tasks": len(unfinished_original) + len(unfinished_revision),
+        "stagnant_rounds": stagnant,
+    })
     _persist(_run_id(state), {
         "verdict": verdict, "verdict_reason": reason,
         "tasks": dag.to_dicts(),
@@ -1226,6 +1399,7 @@ def _render_trace_summary(trace: dict) -> str:
     return "\n".join(blocks)
 
 
+@audit_node("compiler")
 def compiler_node(state: ResearchStateDict) -> ResearchStateDict:
     """成文：模型只能用目录里的编号引用，成文后由 CitationVerifier 校验。
 
@@ -1357,6 +1531,22 @@ def compiler_node(state: ResearchStateDict) -> ResearchStateDict:
         "relations": state.get("relations", []),
         "issues": state.get("issues", []),
         "ledger_events": ledger.delta(),
+    })
+
+    # 审计：引用校验结果（每类 issue 计数，不记正文）
+    emit(CITATION_VERIFIED, status=STATUS_DEGRADED if issues else STATUS_SUCCESS, metadata={
+        "refs": len(result["refs"]),
+        "citation_issues": len(issues),
+        "used_sources": len(result["used_source_ids"]),
+        "unsupported_claims": len(unsupported_violations),
+        "issue_types": sorted({i["issue_type"] for i in issues}),
+    })
+
+    # 审计：run_end 收尾（正常成文出口；异常路径由节点级 FAILED 事件兜底）
+    emit(RUN_END, status=STATUS_SUCCESS, metadata={
+        "verdict": verdict,
+        "termination_reason": state.get("verdict_reason", ""),
+        "report_sections": len(sections),
     })
 
     return {

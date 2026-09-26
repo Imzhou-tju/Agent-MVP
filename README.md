@@ -34,6 +34,7 @@ Clawgent 是一个面向科研场景的智能体运行时，基于 **LangGraph**
 | **多智能体调研** | LangGraph 子图，Send API fan-out 并发 Researcher，Critic 找缺证/矛盾，Judge 条件路由，产出带引用的 Markdown 报告 |
 | **学术 PDF 解析** | 可插拔后端：MinerU 官方 API（保留公式/表格/双栏结构）+ PyPDF2 自动降级 |
 | **过程审计** | 单例异步 JSONL 日志器，4 类事件（llm_input/tool_call/tool_result/ai_message），独立监控终端实时回放 |
+| **可观测性** | 统一审计事件层（Run→Node→Task→Retrieval→Evidence→Claim→Citation→Report）+ 本地只读 Dashboard + SQLite 查询索引 |
 | **Docker 沙盒** | Shell 命令在 `python:3.10-slim` 容器内执行，60s 超时熔断，`os.path.realpath` 防软链接越权 |
 | **双水位记忆** | 长期画像(Markdown) + 近期摘要(按回合裁剪+滚动压缩)，跨会话记住研究方向与偏好 |
 | **多模型适配** | OpenAI 兼容(OpenAI/阿里云/腾讯/Z.AI) / Anthropic / Ollama 工厂模式统一接入 |
@@ -96,9 +97,12 @@ TAVILY_API_KEY=
 ```bash
 clawgent              # 交互式终端
 python entry/monitor.py   # 另开窗口：实时审计监控
+python -m entry.dashboard # 另开窗口：本地可观测 Dashboard（http://127.0.0.1:8765）
 ```
 
 ![监控终端](docs/monitor.png)
+
+Dashboard 提供一次 Research Run 的完整追踪：Run 列表 / 执行时间线 / 任务 DAG / 证据溯源 / RAG 多跳 / 可靠性统计，只读不改调研状态。详见 [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md)。
 
 ### 4️⃣ 开启学术检索
 
@@ -233,8 +237,13 @@ Clawgent/
 │       ├── config.py            # 全局路径与各子系统配置
 │       ├── provider.py          # 多模型工厂
 │       ├── logger.py            # 单例异步 JSONL 审计日志器
+│       ├── audit.py             # 统一审计事件层（emit / span / summarize）
 │       ├── heartbeat.py         # 心跳任务协程
 │       ├── skill_loader.py      # 懒加载技能加载器（多格式兼容）
+│       ├── dashboard/
+│       │   ├── indexer.py       # 审计事件增量索引（SQLite）
+│       │   ├── server.py        # 本地只读 Dashboard HTTP 服务
+│       │   └── static/          # 单页前端（Run 列表/时间线/DAG/溯源）
 │       ├── tools/
 │       │   ├── academic_tool.py # 学术检索工具（MCP 封装）
 │       │   ├── rag_tools.py     # RAG 工具封装
@@ -246,7 +255,8 @@ Clawgent/
 │       │   ├── vector_store.py  # Chroma 双集合 + BM25
 │       │   ├── pdf_backends.py  # 可插拔 PDF 后端（PyPDF2 / MinerU API）
 │       │   ├── loader.py        # 文档加载器
-│       │   └── reliability.py   # 熔断器 + 死信队列
+│       │   ├── reliability.py   # 熔断器 + 死信队列
+│       │   └── retrieval_decision.py # 多跳结构化检索决策
 │       └── research/
 │           ├── graph.py         # 多智能体调研子图
 │           ├── nodes.py         # Planner/Researcher/Critic/Judge/Compiler 节点
@@ -255,7 +265,10 @@ Clawgent/
 ├── entry/
 │   ├── cli.py                   # clawgent 命令入口 + 配置向导
 │   ├── main.py                  # 交互式对话终端
-│   └── monitor.py               # 实时审计监控终端
+│   ├── monitor.py               # 实时审计监控终端
+│   └── dashboard.py             # Dashboard 启动入口
+├── scripts/
+│   └── demo_audit_run.py        # 生成一次完整审计事件链用于验证 Dashboard
 ├── workspace/                   # 运行时数据（自动创建）
 │   ├── memory/                  # 长期画像
 │   ├── office/                  # 沙盒工位（唯一可执行区）

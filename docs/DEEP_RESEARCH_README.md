@@ -253,6 +253,22 @@ Evidence 指向 Source，Source 上有 url / doi / 年份 / 来源类型。
 
 ---
 
+## 监控与审计
+
+一次 Run 的完整链路通过统一审计事件层落盘（`core/audit.py`），可追踪
+`Run → Node → Task → Retrieval → Evidence → Claim → Citation → Report`：
+
+- 各节点用 `@audit_node("节点名")` 注入 `node_start`/`node_end`；
+  Planner 发 `run_start`/`plan_gate`/`task_created`，Scheduler 发 `task_ready`/`task_started`，
+  Researcher 发 `evidence_registered`，Aggregator 发 `aggregation`（claim 支撑分布），
+  Review 发 `review_issue`，Repair 发 `repair`/`task_reopened`，Judge 发 `judge_decision`，
+  Compiler 发 `citation_verified`/`run_end`。
+- 事件落 `logs/<thread_id>.jsonl`（与行为审计日志同文件），`audit.summarize()` 聚合 Run Summary。
+- 本地只读 Dashboard（`python -m entry.dashboard`）展示 Run 列表 / 时间线 / 任务 DAG /
+  证据溯源 / RAG 多跳 / 可靠性统计，详见 `docs/OBSERVABILITY.md`。
+
+---
+
 ## 相关文件
 
 ```
@@ -269,6 +285,10 @@ clawgent/core/research/
 ├── ledger.py     # ResearchLedger / build_trace（过程记录与回溯）
 ├── search.py     # hybrid_search：学术MCP + Tavily + RAG 三路并发
 └── academic.py   # 学术 MCP 客户端（arXiv / Semantic Scholar / PubMed）
+
+clawgent/core/
+├── audit.py      # 统一审计事件层（emit / span / summarize）
+└── dashboard/    # 本地只读 Dashboard（indexer + server + static）
 ```
 
 测试：`tests/test_research_dag.py`（确定性逻辑）、`tests/test_research_flow.py`（离线整链路，不联网）、

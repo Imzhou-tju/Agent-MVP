@@ -179,6 +179,15 @@ class DeadLetterQueue:
         return {r[0]: r[1] for r in rows}
 
 
+def _audit(event_type: str, **kwargs: Any) -> None:
+    """审计埋点：惰性导入避免循环依赖；任何异常都不影响可靠性包装本身。"""
+    try:
+        from ..audit import emit
+        emit(event_type, **kwargs)
+    except Exception:
+        pass
+
+
 def llm_call_with_reliability(
     method_name: str,
     circuit_breaker: CircuitBreaker,
@@ -199,13 +208,17 @@ def llm_call_with_reliability(
     # 熔断打开：跳过主模型，但仍给升级模型一次机会，都不行才降级
     if circuit_breaker.is_open():
         print(f"[Reliability] {method_name} 熔断中，跳过主模型")
+        _audit("circuit_breaker", status="DEGRADED", metadata={
+            "method": method_name, "state": "OPEN"})
         if stronger_fn is not None:
             try:
                 result = stronger_fn()
                 print(f"[Reliability] {method_name} 熔断期升级模型兜底成功")
+                _audit("fallback", status="DEGRADED", metadata={"method": method_name})
                 return result
             except Exception as e:
                 print(f"[Reliability] {method_name} 熔断期升级模型失败: {e}")
+        _audit("fallback", status="FAILED", metadata={"method": method_name})
         return fallback
 
     last_error: Exception | None = None
@@ -217,6 +230,9 @@ def llm_call_with_reliability(
         except Exception as e:
             last_error = e
             print(f"[Reliability] {method_name} 第 {attempt}/{max_retries} 次失败: {e}")
+            _audit("retry", status="FAILED", metadata={
+                "method": method_name, "attempt": attempt,
+                "max_retries": max_retries, "error": str(e)[:200]})
 
     # 主模型重试耗尽：先记一次失败推动熔断，再用升级模型赌一次
     # 注意：升级成功不 record_success，主模型的失败照常累计，该跳闸就跳闸
@@ -225,6 +241,7 @@ def llm_call_with_reliability(
         try:
             result = stronger_fn()
             print(f"[Reliability] {method_name} 升级模型兜底成功")
+            _audit("fallback", status="DEGRADED", metadata={"method": method_name})
             return result
         except Exception as e:
             last_error = e
@@ -236,4 +253,6 @@ def llm_call_with_reliability(
         context=context or {},
         error=str(last_error),
     )
+    _audit("fallback", status="FAILED", metadata={
+        "method": method_name, "error": str(last_error)[:200]})
     return fallback

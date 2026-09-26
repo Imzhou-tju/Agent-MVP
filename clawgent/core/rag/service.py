@@ -9,6 +9,16 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
 from .. import config
+from ..audit import (
+    MULTI_HOP_ITERATION,
+    RAG_ITERATION,
+    RAG_RETRIEVAL,
+    RERANK,
+    STATUS_DEGRADED,
+    STATUS_FAILED,
+    STATUS_SUCCESS,
+    emit,
+)
 from .vector_store import SimpleVectorStore
 from .reliability import CircuitBreaker, DeadLetterQueue, llm_call_with_reliability
 from .retrieval_decision import (
@@ -164,13 +174,17 @@ class KnowledgeBaseService:
 
         search_top_k = top_k or config.RAG_TOP_K
         all_ranked_lists = []
+        vector_count = 0
+        bm25_count = 0
         for q in all_queries:
             vec = self.store.search(q, top_k=search_top_k)
             bm25 = self.store.bm25_search(q, top_k=search_top_k)
             if vec:
                 all_ranked_lists.append(vec)
+                vector_count += len(vec)
             if bm25:
                 all_ranked_lists.append(bm25)
+                bm25_count += len(bm25)
 
         rrf_k = 60
         merged: dict = {}
@@ -183,6 +197,13 @@ class KnowledgeBaseService:
                 merged[doc_id]['rrf_score'] += 1.0 / (rrf_k + rank + 1)
 
         final_list = sorted(merged.values(), key=lambda x: x.get('rrf_score', 0), reverse=True)
+        emit(RAG_RETRIEVAL, status=STATUS_SUCCESS, metadata={
+            "query": query,
+            "query_count": len(all_queries),
+            "vector_result_count": vector_count,
+            "bm25_result_count": bm25_count,
+            "rrf_result_count": len(final_list),
+        })
         return final_list[:search_top_k * 2]
 
     def _critique_docs(self, query: str, documents: list[dict]) -> list[dict]:
@@ -298,6 +319,7 @@ class KnowledgeBaseService:
 
         # CRAG 门控：评估是否足够，不足则改写补检索（最多 1 次）
         gate = self._crag_gate(query, critiqued)
+        rewrite_query = ""
         if not gate["sufficient"] and gate["rewrite_query"]:
             rewrite_q = gate["rewrite_query"]
             extra_docs = self.search(rewrite_q, top_k=search_top_k)
@@ -307,6 +329,18 @@ class KnowledgeBaseService:
                 new_docs = [d for d in extra_reranked if d["chunk_id"] not in seen]
                 critiqued = critiqued + new_docs
                 critiqued.sort(key=lambda x: x.get("rerank_score", 0.0), reverse=True)
+                rewrite_query = rewrite_q
+
+        emit(RAG_ITERATION, status=STATUS_SUCCESS, metadata={
+            "query": query,
+            "vector_result_count": sum(1 for d in top_docs if d.get("rerank_status") == "SUCCESS"),
+            "rrf_result_count": len(top_docs),
+            "rerank_result_count": len(top_docs),
+            "rerank_fallback": any(d.get("rerank_status") == "FALLBACK" for d in top_docs),
+            "llm_filter_result_count": len(critiqued),
+            "sufficiency": bool(gate["sufficient"]),
+            "query_rewrite": rewrite_query,
+        })
 
         return critiqued
 
@@ -459,6 +493,8 @@ class KnowledgeBaseService:
             compress_fn=self._compress_to_finding,
             decide_fn=self._reason_next,
             synthesize_fn=self._synthesize,
+            on_iteration=lambda it: emit(MULTI_HOP_ITERATION, status=STATUS_SUCCESS,
+                                         metadata=dict(it)),
         )
 
     def rerank(self, query: str, documents: list[dict]) -> list[dict]:
@@ -488,12 +524,17 @@ class KnowledgeBaseService:
             for doc in documents:
                 doc.setdefault("rerank_score", 0.0)
                 doc.setdefault("rerank_status", "SUCCESS")
+            emit(RERANK, status=STATUS_SUCCESS, metadata={
+                "query": query, "rerank_result_count": len(documents), "fallback": False})
             return documents
         except Exception as e:
             print(f"[RAG] Reranking 失败，回退向量分: {e}")
             for doc in documents:
                 doc["rerank_score"] = doc.get("score", 0.0)
                 doc["rerank_status"] = "FALLBACK"
+            emit(RERANK, status=STATUS_DEGRADED, metadata={
+                "query": query, "rerank_result_count": len(documents),
+                "fallback": True, "error": str(e)[:200]})
             return documents
 
     def stats(self) -> dict:

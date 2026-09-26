@@ -453,6 +453,22 @@ RAG里有三个 LLM 决策节点：
 - 已具备后台线程消费框架
 - 当前主链路仍以同步调用为主，默认只做持久化，不自动异步补偿
 
+### 5.5 可观测性
+
+检索链路的可观测事件通过统一审计层（`core/audit.py`）落盘，供 Dashboard 查看：
+
+- `rag_retrieval`：单轮检索各路召回数量（vector / bm25 / rrf / 合并后）。
+- `rag_iteration`：`search_agentic` 每轮记录 query、各路数量、`rerank_fallback`、
+  `llm_filter_result_count`（Self-RAG 过滤后）、`sufficiency`（CRAG 充分性）、`query_rewrite`。
+- `rerank`：远程 rerank 成功 / 回退向量分（`fallback` 标记）。
+- `multi_hop_iteration`：多跳循环每轮记录 `iteration / query / evidence_count_before /
+  evidence_count_after / new_evidence_count / gap / action / next_query / stop_reason`。
+- 可靠性：`retry` / `fallback` / `circuit_breaker`（由 `reliability.py` 的
+  `llm_call_with_reliability` 发）。
+
+`new_evidence_count` 按现有 evidence_id 去重计算，不新增另一套判断。多跳最终能回答
+「进行了几轮 → 每轮新增多少证据 → 为什么继续 → 为什么停止」。
+
 - --
 
 ## 6. 对外暴露能力

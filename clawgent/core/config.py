@@ -68,13 +68,24 @@ MINERU_POLL_TIMEOUT = int(os.getenv("MINERU_POLL_TIMEOUT", "180"))
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 RESEARCH_MAX_CONCURRENT = int(os.getenv("RESEARCH_MAX_CONCURRENT", "5"))
 
+# ==================== 审计与可观测性 ====================
+# 审计总开关：关闭后不写任何审计事件（业务行为不变）
+AUDIT_ENABLED = os.getenv("AUDIT_ENABLED", "true").lower() == "true"
+# 审计日志目录：与现有行为审计日志一致，JSONL 按 thread_id 分文件
+AUDIT_LOG_DIR = os.getenv("AUDIT_LOG_DIR", os.path.join(PROJECT_ROOT, "logs"))
+# Dashboard 只读索引（SQLite，仅用于查询加速；不是业务状态源）
+AUDIT_INDEX_PATH = os.getenv("AUDIT_INDEX_PATH", os.path.join(AUDIT_LOG_DIR, "audit_index.sqlite"))
+# 本地 Dashboard 服务
+DASHBOARD_HOST = os.getenv("DASHBOARD_HOST", "127.0.0.1")
+DASHBOARD_PORT = int(os.getenv("DASHBOARD_PORT", "8765"))
+
 # 学术检索 MCP servers（原生 MCP 接入）。为空则退化为无学术源。
 # 配置示例见 .env.example；键为 server 名，值为 langchain-mcp-adapters 的 connection dict。
 ACADEMIC_MCP_ENABLED = os.getenv("ACADEMIC_MCP_ENABLED", "false").lower() == "true"
 SEMANTIC_SCHOLAR_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
 PUBMED_API_KEY = os.getenv("PUBMED_API_KEY", "")
 
-for d in [WORKSPACE_DIR, MEMORY_DIR, PERSONAS_DIR, SCRIPTS_DIR, OFFICE_DIR, SKILLS_DIR, KB_UPLOAD_DIR, KB_INDEX_DIR]:
+for d in [WORKSPACE_DIR, MEMORY_DIR, PERSONAS_DIR, SCRIPTS_DIR, OFFICE_DIR, SKILLS_DIR, KB_UPLOAD_DIR, KB_INDEX_DIR, AUDIT_LOG_DIR]:
     os.makedirs(d, exist_ok=True)
 
 print(f"[Config] Workspace ready: {WORKSPACE_DIR}")

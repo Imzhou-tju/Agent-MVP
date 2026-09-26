@@ -173,10 +173,15 @@ def run_iterative_loop(
     compress_fn: Callable[[str, list[dict]], str],
     decide_fn: Callable[[str, dict], Any],
     synthesize_fn: Callable[[str, dict], str] | None = None,
+    on_iteration: Callable[[dict], None] | None = None,
 ) -> dict:
     """多跳循环编排（spec 第八节的 14 步顺序）。
 
     依赖全部由调用方注入，因此不绑定 LangChain、可离线测试。
+
+    on_iteration：可选的每轮回调，参数为该轮的摘要 dict（iteration / evidence_count_before /
+    evidence_count_after / new_evidence_count / gap / action / next_query / stop_reason），
+    用于审计埋点；回调抛异常会被忽略，不影响循环。
 
     返回字段在原有 answer/findings/iterations/sources 之外，
     额外给出 iteration_decisions 与 stop_reason（调试与可观测用）。
@@ -209,8 +214,10 @@ def run_iterative_loop(
 
         # 4) 更新 evidence_state（只记新增证据，不存正文）
         # 5) 本轮新证据数
+        evidence_before = len(loop.seen_evidence_ids)
         fresh = loop.new_evidence(docs)
         new_evidence_count = len(fresh)
+        evidence_after = len(loop.seen_evidence_ids)
 
         # 3) 结论压缩
         finding = compress_fn(current_query, docs)
@@ -233,16 +240,36 @@ def run_iterative_loop(
                 "stop_reason": reason,
             })
 
+        def _emit_iteration(action: str, decision: RetrievalDecision | None, reason: str) -> None:
+            if on_iteration is None:
+                return
+            try:
+                on_iteration({
+                    "iteration": iteration,
+                    "query": current_query,
+                    "evidence_count_before": evidence_before,
+                    "evidence_count_after": evidence_after,
+                    "new_evidence_count": new_evidence_count,
+                    "gap": (decision.gap if decision else ""),
+                    "action": action,
+                    "next_query": (decision.next_query if decision else ""),
+                    "stop_reason": reason,
+                })
+            except Exception:
+                pass  # 审计回调故障不影响循环
+
         # 6) RAG_MAX_ITERS 是硬上限，优先级最高
         if iteration >= max_iters:
             stop_reason = STOP_MAX_ITERATIONS
             _record(ACTION_STOP, None, stop_reason)
+            _emit_iteration(ACTION_STOP, None, stop_reason)
             break
 
         # 7) 本轮没有新证据 → 不再继续
         if new_evidence_count == 0:
             stop_reason = STOP_NO_EVIDENCE_GAIN
             _record(ACTION_STOP, None, stop_reason)
+            _emit_iteration(ACTION_STOP, None, stop_reason)
             break
 
         # 8/9) 推理并取结构化决策
@@ -253,6 +280,7 @@ def run_iterative_loop(
         # 10-14) 终止判定
         cont, reason = loop.evaluate(decision)
         _record(decision.action, decision, reason)
+        _emit_iteration(decision.action, decision, reason)
         if not cont:
             stop_reason = reason
             break

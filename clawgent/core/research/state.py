@@ -164,6 +164,8 @@ class ResearchState:
     def __init__(self):
         # 输入
         self.run_id: str = ""                # 一次调研的唯一标识，持久化主键
+        # 会话标识：审计日志按它分文件（logs/<thread_id>.jsonl）
+        self.thread_id: str = ""
         self.original_query: str = ""
         self.research_context: str = ""
 
@@ -223,6 +225,8 @@ class ResearchStateDict(TypedDict, total=False):
     # ---------------- 输入 ----------------
     # 一次调研的唯一标识，由 Planner 生成，作为持久化各表的外键
     run_id: str
+    # 会话标识：审计日志按它分文件（logs/<thread_id>.jsonl），缺失时审计落到 research.jsonl
+    thread_id: str
     original_query: str
     research_context: str
 

@@ -118,4 +118,18 @@ async def hybrid_search(
         if key and key not in seen:
             seen.add(key)
             merged.append(r)
+
+    # 审计：三通道检索数量与合并后数量（只记数量与 query，不记正文）
+    try:
+        from ..audit import RAG_RETRIEVAL, STATUS_SUCCESS, emit
+        emit(RAG_RETRIEVAL, status=STATUS_SUCCESS, metadata={
+            "query": query,
+            "academic_result_count": len(academic),
+            "web_result_count": len(web),
+            "rag_result_count": len(rag),
+            "merged_result_count": len(merged),
+        })
+    except Exception:
+        pass
+
     return merged
