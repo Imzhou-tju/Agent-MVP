@@ -28,6 +28,7 @@ ISSUE_FOUND = "issue_found"
 REVISION_CREATED = "revision_created"
 UNSUPPORTED_CLAIM = "unsupported_claim"
 VERDICT = "verdict"
+PROGRESS_LOG = "progress_log"
 REPORT_COMPILED = "report_compiled"
 
 

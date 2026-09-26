@@ -520,13 +520,16 @@ class KnowledgeBaseService:
                 idx = res["index"]
                 if 0 <= idx < len(documents):
                     documents[idx]["rerank_score"] = float(res["relevance_score"])
+                    documents[idx]["rerank_status"] = "SUCCESS"
             for doc in documents:
                 doc.setdefault("rerank_score", 0.0)
+                doc.setdefault("rerank_status", "SUCCESS")
             return documents
         except Exception as e:
             print(f"[RAG] Reranking 失败，回退向量分: {e}")
             for doc in documents:
                 doc["rerank_score"] = doc.get("score", 0.0)
+                doc["rerank_status"] = "FALLBACK"
             return documents
 
     def stats(self) -> dict:

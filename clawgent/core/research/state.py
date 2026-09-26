@@ -26,10 +26,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Iterable, TypedDict
 
-# Judge 的三种裁决
+# Judge 的裁决
 COMPILE = "COMPILE"
 COMPILE_WITH_LIMITATIONS = "COMPILE_WITH_LIMITATIONS"
 REVISE = "REVISE"
+CONTINUE_UNFINISHED = "CONTINUE_UNFINISHED"   # 原始计划任务仍有可执行项，继续循环
 ABORT_WITH_LIMITATIONS = "ABORT_WITH_LIMITATIONS"
 
 
@@ -188,6 +189,11 @@ class ResearchState:
         self.verdict: str = ""
         self.verdict_reason: str = ""
         self.evidence_support: dict = field(default_factory=dict)
+        # 进展跟踪（§14/§38）：上一轮的声明/来源总数，用于算本轮新增
+        self.last_claim_count: int = 0
+        self.last_source_count: int = 0
+        # 每轮进展日志：new_evidence/claim/source/task + 来源指纹（检测本轮是否真的发现新来源）
+        self.progress_log: list[dict] = field(default_factory=list)
 
         # Compiler
         self.final_report: str = ""
@@ -238,6 +244,10 @@ class ResearchStateDict(TypedDict, total=False):
     # 进展检测（§38）：记录上一轮证据总数与连续无新增的轮数
     last_evidence_count: int
     stagnant_rounds: int
+    # 进展跟踪（§14）：上一轮声明/来源总数 + 每轮进展日志
+    last_claim_count: int
+    last_source_count: int
+    progress_log: Annotated[list[dict], append_list]
 
     # ---------------- Compiler ----------------
     final_report: str

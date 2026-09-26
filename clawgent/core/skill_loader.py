@@ -31,9 +31,10 @@ class LazySkillLoader:
     4. LRU缓存策略，自动清理不常用的技能
     """
     
-    def __init__(self, cache_size: int = 50):
+    def __init__(self, cache_size: int = 50, reserved_names: Optional[List[str]] = None):
         self._skill_registry: Optional[List[Dict[str, Any]]] = None
         self._cache_size = cache_size
+        self._reserved = set(reserved_names or [])
         self._last_scan_time = 0
         self._scan_interval = 60  # 缓存元数据扫描结果60秒
     
@@ -149,7 +150,8 @@ class LazySkillLoader:
                 desc_match = re.search(r'^description:\s*(.+)$', content, re.MULTILINE)
 
             raw_name = name_match.group(1).strip() if name_match else os.path.basename(os.path.dirname(md_path))
-            tool_name = re.sub(r'[^a-zA-Z0-9_-]', '_', raw_name)
+            # 归一化：只保留字母数字与 _-，其余转下划线（与既有规则一致）
+            normalized = re.sub(r'[^a-zA-Z0-9_-]', '_', raw_name)
 
             raw_desc = desc_match.group(1).strip() if desc_match else f"提供 {raw_name} 相关功能"
             if (raw_desc.startswith('"') and raw_desc.endswith('"')) or \
@@ -158,7 +160,7 @@ class LazySkillLoader:
 
             return {
                 "raw_name": raw_name,
-                "name": tool_name,
+                "normalized": normalized,
                 "description": raw_desc
             }
         except Exception as e:
@@ -215,22 +217,39 @@ class LazySkillLoader:
             args_schema=DynamicSkillInput
         )
     
-    def get_all_tools(self, force_rescan: bool = False) -> List[StructuredTool]:
+    def get_all_tools(self, force_rescan: bool = False,
+                      reserved_names: Optional[List[str]] = None) -> List[StructuredTool]:
         """
-        获取所有工具（懒加载占位符）
-        
+        获取所有工具（懒加载占位符）。
+
+        工具名统一加 `skill_` 命名空间前缀，避免与内置工具重名；若归一化后的名字
+        落在 reserved_names（内置工具名）或与其他技能冲突，追加 `_2/_3` 去重。
+
         Args:
             force_rescan: 是否强制重新扫描技能目录
-        
+            reserved_names: 内置工具名集合，用于去重避免覆盖
+
         Returns:
             工具对象列表
         """
         skill_infos = self._scan_skills(force_rescan=force_rescan)
-        
+        reserved = set(self._reserved) | set(reserved_names or [])
+
+        used: set[str] = set()
+        for info in skill_infos:
+            base = f"skill_{info.get('normalized', '')}"
+            name = base
+            suffix = 2
+            while name in reserved or name in used:
+                name = f"{base}_{suffix}"
+                suffix += 1
+            used.add(name)
+            info["name"] = name
+
         tools = []
         for skill_info in skill_infos:
             tools.append(self._create_lazy_tool(skill_info))
-        
+
         return tools
     
     def get_tool_count(self) -> int:
@@ -248,23 +267,25 @@ class LazySkillLoader:
 _lazy_loader = LazySkillLoader(cache_size=50)
 
 
-def load_dynamic_skills(force_rescan: bool = False) -> List[StructuredTool]:
+def load_dynamic_skills(force_rescan: bool = False,
+                        reserved_names: Optional[List[str]] = None) -> List[StructuredTool]:
     """
     加载动态技能（懒加载 + 缓存版本）
-    
+
     Args:
         force_rescan: 是否强制重新扫描技能目录（默认 False）
-    
+        reserved_names: 内置工具名集合，技能工具名会避开这些名字
+
     Returns:
-        工具对象列表（懒加载占位符）
-    
+        工具对象列表（懒加载占位符，名字统一带 `skill_` 前缀）
+
     Note:
         - 启动时只扫描元数据，不加载完整内容
         - 首次调用技能时才加载完整内容
         - 支持热更新（修改技能文件后自动重新加载）
         - 使用 LRU 缓存策略
     """
-    return _lazy_loader.get_all_tools(force_rescan=force_rescan)
+    return _lazy_loader.get_all_tools(force_rescan=force_rescan, reserved_names=reserved_names)
 
 
 def reload_skills() -> List[StructuredTool]:

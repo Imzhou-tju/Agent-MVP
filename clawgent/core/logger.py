@@ -104,4 +104,19 @@ class JSONLEventLogger:
         self.log_queue.put(None)
         self.log_queue.join()
 
+    def flush(self):
+        """非阻塞退出式等待：等队列里已入队的事件全部落盘，但不停止后台线程。"""
+        self.log_queue.join()
+
+
 audit_logger = JSONLEventLogger()
+
+
+def log_research_event(thread_id: str, event_type: str, **kwargs):
+    """科研子图（research-dag）专用审计入口。
+
+    复用统一 JSONL 审计器，按 thread_id 落盘到 logs/<thread_id>.jsonl。
+    event_type 取 research/ledger.py 的事件常量（plan_created / task_completed /
+    evidence_verified / verdict / report_compiled / progress_log ...）。
+    """
+    audit_logger.log_event(thread_id, event_type, **kwargs)

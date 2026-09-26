@@ -37,6 +37,15 @@ PARTIALLY_SUPPORTED = "PARTIALLY_SUPPORTED"
 UNSUPPORTED = "UNSUPPORTED"
 CONTRADICTED = "CONTRADICTED"
 
+# Claim-Evidence 语义关系（由 LLM 判定 quote 是否真的支持 claim，§8）
+# 与 Claim-Evidence 的结构关系（SUPPORTS/CONTRADICTS/...）分开：
+# 结构关系来自程序推导，语义关系来自模型对「quote→claim」的判断。
+SEM_SUPPORTS = "SUPPORTS"
+SEM_PARTIALLY_SUPPORTS = "PARTIALLY_SUPPORTS"
+SEM_CONTRADICTS = "CONTRADICTS"
+SEM_IRRELEVANT = "IRRELEVANT"
+SEMANTIC_RELATIONS = (SEM_SUPPORTS, SEM_PARTIALLY_SUPPORTS, SEM_CONTRADICTS, SEM_IRRELEVANT)
+
 # Claim-Evidence / Claim-Claim 关系
 SUPPORTS = "SUPPORTS"
 CONTRADICTS = "CONTRADICTS"
@@ -80,6 +89,9 @@ class Claim:
     # polarity ∈ {positive, negative, neutral, ""}；value 为可比数值（如 "2.1%"）。
     polarity: str = ""
     value: str = ""
+    # 语义关系（§8）：LLM 判定本 claim 与其 evidence 的 quote 之间是否真支持。
+    # 缺省为空，程序推导时视作 SUPPORTS（quote 已定位且由抽取配对）。
+    semantic_relation: str = ""
     task_id: str = ""
     evidence_ids: list[str] = field(default_factory=list)
     status: str = UNSUPPORTED
@@ -96,6 +108,7 @@ class Claim:
             "scope_fields": dict(self.scope_fields),
             "polarity": self.polarity,
             "value": self.value,
+            "semantic_relation": self.semantic_relation,
             "task_id": self.task_id,
             "evidence_ids": list(self.evidence_ids),
             "status": self.status,
@@ -111,6 +124,7 @@ class Claim:
         c.claim_type = c.claim_type if c.claim_type in CLAIM_TYPES else _FALLBACK_TYPE
         c.evidence_ids = [str(x) for x in (c.evidence_ids or []) if x]
         c.scope_fields = dict(c.scope_fields or {})
+        c.semantic_relation = c.semantic_relation if c.semantic_relation in SEMANTIC_RELATIONS else ""
         return c
 
 
@@ -119,6 +133,8 @@ class ClaimRelation:
     source_id: str        # Evidence.evidence_id 或 Claim.claim_id
     target_id: str        # Claim.claim_id
     relation: str = SUPPORTS
+    # 语义关系（§8）：仅当 source 是 Evidence 时由 LLM 判定 quote→claim 的语义。
+    semantic_relation: str = ""
     note: str = ""
 
     def to_dict(self) -> dict:
@@ -126,6 +142,7 @@ class ClaimRelation:
             "source_id": self.source_id,
             "target_id": self.target_id,
             "relation": self.relation,
+            "semantic_relation": self.semantic_relation,
             "note": self.note,
         }
 
@@ -214,46 +231,63 @@ class ClaimGraph:
     # 状态推导
     # ------------------------------------------------------------------
 
-    def recompute_statuses(self, evidence_index: dict[str, dict]) -> dict[str, str]:
-        """按关联证据的校验状态推导每条 Claim 的支撑状态。
+    def recompute_statuses(
+        self,
+        evidence_index: dict[str, dict],
+        semantic_index: dict[tuple[str, str], str] | None = None,
+    ) -> dict[str, str]:
+        """确定性推导每条 Claim 的支撑状态（§9）。
+
+        综合三类信息（均确定性，不依赖模型自评）：
+        1. Evidence 的 verification_status（来自 EvidenceVerifier）
+        2. Evidence→Claim 的语义关系 semantic_relation（来自 ClaimEvidenceSemanticVerifier）
+        3. Claim 间 CONTRADICTS 结构关系（来自 ClaimGraph）
 
         evidence_index: {evidence_id: Evidence.to_dict()}，无对应条目视为缺失。
+        semantic_index: {(evidence_id, claim_id): semantic_relation}，缺省视为支持。
 
-        推导规则（全部为确定性判断）：
+        推导规则：
         - 无任何关联证据 → UNSUPPORTED
-        - 存在 CONTRADICTS 关系 → CONTRADICTED
-        - 至少 1 条 VERIFIED 且无 INVALID → SUPPORTED
-        - 至少 1 条 VERIFIED/PARTIAL，但存在 INVALID 或其余未校验 → PARTIALLY_SUPPORTED
-        - 其余 → UNSUPPORTED
+        - 存在同范围 CONTRADICTS 关系，或某证据 VERIFIED/PARTIAL 且语义 CONTRADICTS → CONTRADICTED
+        - 至少 1 条 VERIFIED 且语义为 SUPPORTS/PARTIALLY_SUPPORTS → SUPPORTED
+        - 至少 1 条（VERIFIED/PARTIAL）且语义 PARTIALLY_SUPPORTS → PARTIALLY_SUPPORTED
+        - 其余（仅有 INVALID/UNVERIFIED 或语义 IRRELEVANT）→ UNSUPPORTED
         """
+        semantic_index = semantic_index or {}
         contradicted: set[str] = set()
         for r in self.relations:
             if r.relation == CONTRADICTS:
                 contradicted.add(r.target_id)
 
         for cid, claim in self.claims.items():
-            statuses = [self._status_of(eid, evidence_index) for eid in claim.evidence_ids]
-            verified = statuses.count("VERIFIED")
-            partial = statuses.count("PARTIAL")
-            invalid = statuses.count("INVALID")
-            missing = statuses.count("MISSING")
+            verified_supports = 0
+            partial_supports = 0
+            contradicts = 0
+            for eid in claim.evidence_ids:
+                status = self._status_of(eid, evidence_index)
+                sem = semantic_index.get((eid, cid), "") or SEM_SUPPORTS
+                if status == "VERIFIED" and sem in (SEM_SUPPORTS, SEM_PARTIALLY_SUPPORTS):
+                    verified_supports += 1
+                elif status in ("VERIFIED", "PARTIAL") and sem == SEM_PARTIALLY_SUPPORTS:
+                    partial_supports += 1
+                elif status in ("VERIFIED", "PARTIAL") and sem == SEM_CONTRADICTS:
+                    contradicts += 1
 
             if not claim.evidence_ids:
                 status = UNSUPPORTED
                 reason = "未关联任何证据"
-            elif cid in contradicted:
+            elif cid in contradicted or contradicts > 0:
                 status = CONTRADICTED
-                reason = "存在相反证据"
-            elif verified >= 1 and invalid == 0 and missing == 0:
+                reason = "存在同范围相反证据"
+            elif verified_supports > 0:
                 status = SUPPORTED
-                reason = f"{verified} 条证据通过原文定位校验"
-            elif verified + partial >= 1:
+                reason = f"{verified_supports} 条证据通过原文校验且语义支持"
+            elif partial_supports > 0:
                 status = PARTIALLY_SUPPORTED
-                reason = (f"校验通过 {verified} 条、部分匹配 {partial} 条、"
-                          f"未通过 {invalid} 条、缺失 {missing} 条")
+                reason = f"{partial_supports} 条证据部分支持（或仅部分匹配原文）"
             else:
                 status = UNSUPPORTED
-                reason = f"无可用证据（未通过 {invalid} 条、缺失 {missing} 条）"
+                reason = "无（通过校验且语义支持）的证据"
 
             claim.status = status
             claim.support_reason = reason
@@ -294,3 +328,26 @@ class ClaimGraph:
             [c.to_dict() for c in self.claims.values()],
             [r.to_dict() for r in self.relations],
         )
+
+
+def recompute_claim_statuses(
+    claims: list[dict],
+    evidences: list[dict],
+    relations: list[dict],
+) -> list[dict]:
+    """便捷函数（§9 确定性基础设施）：直接对 dict 列表重算 Claim 状态。
+
+    返回更新后的 claims 列表（含 status / support_reason）。语义关系从
+    relations 里的 semantic_relation 字段构建索引。
+    """
+    g = ClaimGraph(claims, relations)
+    semantic_index = {
+        (r.get("source_id", ""), r.get("target_id", "")): r.get("semantic_relation", "")
+        for r in relations
+        if r.get("source_id") and r.get("target_id")
+    }
+    g.recompute_statuses(
+        {e.get("evidence_id", ""): e for e in evidences},
+        semantic_index,
+    )
+    return g.to_dicts()[0]

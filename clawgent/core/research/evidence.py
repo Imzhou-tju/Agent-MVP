@@ -20,6 +20,11 @@ PARTIAL = "PARTIAL"
 INVALID = "INVALID"
 UNVERIFIED = "UNVERIFIED"
 
+# 来源内容形态（§14）：full_text = 可获取完整/可定位原文；
+# snippet = 仅检索摘要，无法对原文做引文定位校验。
+FULL_TEXT = "full_text"
+SEARCH_SNIPPET = "snippet"
+
 # quote 与原文本完全命中即 VERIFIED；否则按最长公共片段占比判定 PARTIAL / INVALID
 PARTIAL_THRESHOLD = 0.6
 MIN_QUOTE_CHARS = 8
@@ -58,6 +63,10 @@ class Source:
     publication_year: str = ""
     venue: str = ""
     provider: str = ""           # arxiv / semantic-scholar / pubmed / tavily / rag
+    content_type: str = FULL_TEXT   # full_text | snippet（仅检索摘要，§14 边界）
+    quality: str = ""               # 质量标签 high/medium/low，由 source_quality_of 推导
+    retrieval_method: str = ""      # academic / web / local_kb / rag
+    retrieved_at: str = ""          # 检索时间戳（ISO 8601），仅作元数据
     metadata: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -71,6 +80,10 @@ class Source:
             "publication_year": self.publication_year,
             "venue": self.venue,
             "provider": self.provider,
+            "content_type": self.content_type,
+            "quality": self.quality,
+            "retrieval_method": self.retrieval_method,
+            "retrieved_at": self.retrieved_at,
             "metadata": dict(self.metadata),
         }
 
@@ -87,6 +100,24 @@ class Source:
         if doi:
             return f"doi:{doi}"
         return f"title:{self.title.strip().lower()}|{self.source_type}"
+
+
+def source_quality_of(source: "Source") -> str:
+    """确定性来源质量标签（§15）。
+
+    - 仅检索摘要（snippet）：low（无法定位原文，证据最多 UNVERIFIED）
+    - academic：high（同行评议，可定位原文）
+    - local_kb / web：medium
+    - 其它：low
+    """
+    if getattr(source, "content_type", "") == SEARCH_SNIPPET:
+        return "low"
+    st = source.source_type
+    if st == "academic":
+        return "high"
+    if st in ("local_kb", "web"):
+        return "medium"
+    return "low"
 
 
 class SourceRegistry:
@@ -106,14 +137,17 @@ class SourceRegistry:
             # 已登记过：保留原 source_id，只补齐空字段
             old = self.by_id[existed]
             for f in ("source_type", "title", "authors", "url", "doi",
-                      "publication_year", "venue", "provider"):
+                      "publication_year", "venue", "provider",
+                      "content_type", "retrieval_method", "retrieved_at"):
                 if not getattr(old, f) and getattr(source, f):
                     setattr(old, f, getattr(source, f))
             old.metadata.update(source.metadata or {})
+            old.quality = source_quality_of(old)
             return old
 
         if not source.source_id:
             source.source_id = stable_id("S", key)
+        source.quality = source_quality_of(source)
         self.by_id[source.source_id] = source
         self.key_to_id[key] = source.source_id
         return source
@@ -201,6 +235,13 @@ class EvidenceVerifier:
     ) -> tuple[str, str]:
         if not ev.source_id or not self.registry.has(ev.source_id):
             return INVALID, "source_id 未登记在 Source Registry"
+
+        # §14 来源边界：仅检索摘要（snippet）的来源无法对原文做引文定位校验，
+        # 即使摘要里恰好出现了 quote，也只能记为 UNVERIFIED，不能作为支撑依据。
+        src = self.registry.get(ev.source_id)
+        if src is not None and getattr(src, "content_type", "") == SEARCH_SNIPPET:
+            return UNVERIFIED, "来源仅提供检索摘要，无法对原文做定位校验"
+
         if len((ev.quote or "").strip()) < self.min_quote_chars:
             return INVALID, "quote 过短或为空"
         if not source_text:

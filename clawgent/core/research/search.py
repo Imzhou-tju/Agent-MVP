@@ -73,6 +73,8 @@ def rag_search(query: str, top_k: int = 4) -> list[dict]:
                 # chunk_id 供 Evidence.locator 定位到具体切片（chunk:xxx）
                 "chunk_id": d.get("chunk_id", ""),
                 "document_name": d.get("document_name", ""),
+                # rerank 是否成功调用远程重排器；FALLBACK 表示退回向量分
+                "rerank_status": d.get("rerank_status", ""),
             })
         return results
     except Exception as e:
@@ -106,12 +108,14 @@ async def hybrid_search(
     web = web if isinstance(web, list) else []
     rag = rag if isinstance(rag, list) else []
 
-    seen_urls: set[str] = set()
+    seen: set[str] = set()
     merged = []
     # 学术源优先（科研定位：论文证据权重高于普通网页）
     for r in academic + web + rag:
-        url = r.get("url", "") or (r.get("title", "") + r.get("snippet", "")[:40])
-        if url and url not in seen_urls:
-            seen_urls.add(url)
+        # 结果去重：RAG 切片以 chunk_id 为准（同一切片可能被多路召回），
+        # 其余通道以 url 或「标题+摘要前缀」为准；落键前保留原始 query 不丢失
+        key = r.get("chunk_id") or r.get("url", "") or (r.get("title", "") + r.get("snippet", "")[:40])
+        if key and key not in seen:
+            seen.add(key)
             merged.append(r)
     return merged

@@ -31,6 +31,35 @@ TERMINAL_STATES = (COMPLETED, FAILED, SKIPPED)
 # 单轮 DAG Repair 允许新增的任务数上限，防止 Critic 一次扩出大量任务
 MAX_REPAIR_TASKS = 3
 
+# 任务类型建议分类（§4）。Planner 至少区分这些类型，决定任务职责与依赖补全。
+TASK_TYPES = (
+    "FACT", "MECHANISM", "COMPARISON", "TREND",
+    "EVALUATION", "BACKGROUND", "LIMITATION", "METHOD", "SYNTHESIS",
+)
+_DEFAULT_TASK_TYPE = "FACT"
+
+# 依赖补全规则（§5）：仅当能从「类型 + 标题/描述 + 引用」确定存在语义依赖时才补。
+# 键为「下游任务类型」，值为「它应当依赖的上游任务类型」。
+_DEPENDENCY_RULES = {
+    "COMPARISON": ("FACT", "MECHANISM", "METHOD"),
+    "EVALUATION": ("FACT", "MECHANISM", "METHOD", "RESULT"),
+    "TREND": ("BACKGROUND", "FACT"),
+    "LIMITATION": ("METHOD", "EVALUATION", "RESULT"),
+}
+
+# 合法状态迁移表（§6）。所有状态变化统一经过 transition_task，
+# 杜绝 DONE → RUNNING 这类非法迁移。
+_TRANSITIONS = {
+    PENDING: {READY, BLOCKED, SKIPPED},
+    READY: {RUNNING, SKIPPED, BLOCKED},
+    RUNNING: {COMPLETED, FAILED, BLOCKED},
+    COMPLETED: {REOPENED},
+    FAILED: {REOPENED, PENDING},
+    BLOCKED: {READY, PENDING, SKIPPED},
+    SKIPPED: {PENDING},
+    REOPENED: {READY, BLOCKED},
+}
+
 
 @dataclass
 class ResearchTask:
@@ -150,6 +179,48 @@ class ResearchPlan:
         return plan
 
 
+def _task_text(task: dict) -> str:
+    """把任务的可读文本拼成一个串，用于依赖补全时的引用检测。"""
+    return " ".join(str(task.get(k, "")) for k in
+                    ("title", "description", "question", "objective"))
+
+
+def normalize_task_dependencies(tasks: list[dict]) -> list[dict]:
+    """确定性依赖补全器（§5）。
+
+    只在能从类型 + 文本引用确定存在语义依赖时补依赖，不盲目建边：
+    - 按 _DEPENDENCY_RULES 找到「下游任务类型」允许依赖的「上游类型」候选；
+    - 候选任务只有在被下游任务的文本显式引用（出现其 task_id 或标题子串）时才补为依赖。
+
+    返回修改后的同一份列表（就地更新 dependencies），不改变其它字段。
+    """
+    index = {t.get("task_id"): t for t in tasks if t.get("task_id")}
+    by_type: dict[str, list[str]] = {}
+    for t in tasks:
+        tt = str(t.get("task_type", _DEFAULT_TASK_TYPE)).upper()
+        by_type.setdefault(tt, []).append(t.get("task_id"))
+
+    for t in tasks:
+        tid = t.get("task_id")
+        tt = str(t.get("task_type", _DEFAULT_TASK_TYPE)).upper()
+        needed = _DEPENDENCY_RULES.get(tt)
+        if not needed:
+            continue
+        deps = set(t.get("dependencies") or [])
+        text = _task_text(t)
+        for req in needed:
+            for cid in by_type.get(req, []):
+                if cid == tid or cid in deps:
+                    continue
+                cand = index.get(cid, {})
+                cand_title = str(cand.get("title", ""))
+                # 仅当显式引用才补：出现候选 task_id，或候选标题作为子串出现
+                if cid in text or (cand_title and cand_title in text):
+                    deps.add(cid)
+        t["dependencies"] = sorted(deps)
+    return tasks
+
+
 class TaskDAG:
     """任务图：状态推进与依赖判定，全部为确定性逻辑。"""
 
@@ -203,24 +274,44 @@ class TaskDAG:
     def mark_running(self, task_ids: Iterable[str]) -> None:
         for tid in task_ids:
             if tid in self.tasks:
-                self.tasks[tid].status = RUNNING
+                self.transition_task(tid, RUNNING)
 
     def mark_done(self, task_ids: Iterable[str]) -> None:
         for tid in task_ids:
             if tid in self.tasks:
-                self.tasks[tid].status = COMPLETED
+                self.transition_task(tid, COMPLETED)
 
     def mark_failed(self, task_ids: Iterable[str]) -> None:
         for tid in task_ids:
             if tid in self.tasks:
-                self.tasks[tid].status = FAILED
+                self.transition_task(tid, FAILED)
+
+    def transition_task(self, task_id: str, new_status: str) -> tuple[bool, str]:
+        """统一状态迁移入口（§6）。
+
+        拒绝非法迁移（如 COMPLETED → RUNNING）。返回 (是否成功, 原因)。
+        所有节点修改任务状态都应经由此方法，保证状态机一致。
+        """
+        task = self.tasks.get(task_id)
+        if task is None:
+            return False, "task 不存在"
+        cur = task.status
+        if cur == new_status:
+            return True, ""
+        allowed = _TRANSITIONS.get(cur, set())
+        if new_status not in allowed:
+            return False, f"非法状态迁移: {cur} -> {new_status}"
+        task.status = new_status
+        return True, ""
 
     def reopen(self, task_id: str, reason: str = "") -> bool:
         """重开一个已完成的任务，并把它的下游标记为 REOPENED（局部影响）。"""
         task = self.tasks.get(task_id)
         if task is None or task.status in (RUNNING, REOPENED):
             return False
-        task.status = REOPENED
+        ok, _ = self.transition_task(task_id, REOPENED)
+        if not ok:
+            return False
         task.reopen_count += 1
         if reason:
             task.notes = reason
@@ -228,7 +319,7 @@ class TaskDAG:
         return True
 
     def downstream(self, task_id: str) -> set[str]:
-        """该任务的所有下游任务（含间接）。"""
+        """该任务的所有下游任务（含间接）。纯查询，不修改状态。"""
         children: dict[str, list[str]] = {tid: [] for tid in self.tasks}
         for tid, t in self.tasks.items():
             for dep in t.dependencies:
@@ -246,10 +337,11 @@ class TaskDAG:
         return seen
 
     def _invalidate_downstream(self, task_id: str) -> None:
+        """把 task_id 的下游（含间接）中已完成的任务重开为 REOPENED（局部影响）。"""
         for tid in self.downstream(task_id):
             t = self.tasks[tid]
             if t.status == COMPLETED:
-                t.status = REOPENED
+                self.transition_task(tid, REOPENED)
                 t.reopen_count += 1
 
     # ------------------------------------------------------------------
