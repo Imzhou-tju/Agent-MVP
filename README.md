@@ -2,7 +2,7 @@
 
 # Clawgent
 
-### **科研智能助手 · 可溯源的深度调研与知识库问答**
+### **科研智能助手 · 可溯源的调研与知识库问答**
 
 导航: [简介](#-简介) · [核心能力](#-核心能力) · [快速开始](#-快速开始) · [系统架构](#-系统架构) · [子系统详解](#-子系统详解) · [内置工具](#-内置工具) · [目录结构](#-目录结构)
 
@@ -15,7 +15,7 @@
 Clawgent 是一个面向科研场景的智能体运行时，基于 **LangGraph** 构建，围绕三条主线：
 
 - **📚 学术检索与私有知识库** —— 通过原生 MCP 接入 arXiv / Semantic Scholar / PubMed 等学术数据源；本地知识库走 Agentic RAG（混合召回 + 多跳推理），所有结论强制标注来源，可溯源不编造。
-- **🔬 多智能体深度调研** —— LangGraph 子图驱动 Planner→并发 Researcher→Critic 交叉验证→Judge 评审→结构化报告，证据缺口自动补检索。
+- **🔬 多智能体调研** —— LangGraph 子图驱动 Planner→并发 Researcher→Critic 交叉验证→Judge 评审→结构化报告，证据缺口自动补检索。
 - **🛡️ 过程可追溯** —— 每一步 LLM 调用、工具调用、工具结果全程异步审计落盘 JSONL，实验过程可复现；Shell 命令在 Docker 容器内隔离执行，路径经真实路径校验防越权。
 
 ### 技能生态兼容
@@ -184,7 +184,7 @@ START → planner ──[Send fan-out]──▶ researcher×N ──▶ aggregat
 
 **存储**：Chroma 双集合持久化（子切片向量检索，父块 ID 回溯取完整上下文）；BM25 语料绑定子切片。
 
-### 🔬 多智能体深度调研（[core/research/](clawgent/core/research/)）
+### 🔬 多智能体调研（[core/research/](clawgent/core/research/)）
 
 `deep_research` 工具触发独立 LangGraph 子图：
 
@@ -209,7 +209,7 @@ START → planner ──[Send fan-out]──▶ researcher×N ──▶ aggregat
 | `search_knowledge_base` | 私有知识库单轮快查 |
 | `deep_query_knowledge_base` | 私有知识库多跳深挖 |
 | `rebuild_knowledge_index` | 重建向量索引（新增/修改文档后） |
-| `deep_research` | 多智能体联网深度调研，输出结构化报告 |
+| `deep_research` | 多智能体联网调研，输出结构化报告 |
 | `get_current_time` | 当前系统时间 |
 | `calculator` | 数学表达式计算 |
 | `get_system_model_info` | 当前 provider / model |
@@ -238,7 +238,7 @@ Clawgent/
 │       ├── tools/
 │       │   ├── academic_tool.py # 学术检索工具（MCP 封装）
 │       │   ├── rag_tools.py     # RAG 工具封装
-│       │   ├── research_tool.py # 深度调研工具封装
+│       │   ├── research_tool.py # 调研工具封装
 │       │   ├── sandbox_tools.py # Docker 沙盒文件/Shell 工具
 │       │   └── builtins.py      # 工具注册表
 │       ├── rag/
@@ -276,6 +276,6 @@ Clawgent/
 
 <div align="center">
 
-**👾 Clawgent · 科研智能助手 · 可溯源的深度调研与知识库问答**
+**👾 Clawgent · 科研智能助手 · 可溯源的调研与知识库问答**
 
 </div>

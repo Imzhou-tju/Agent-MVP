@@ -7,7 +7,7 @@ from .base import clawgent_tool
 def search_academic(query: str, max_results: int = 5) -> str:
     """检索学术论文（arXiv / Semantic Scholar / PubMed 等，经 MCP 接入）。
     当用户要查找论文、文献、研究综述、某方向的最新进展、或需要可引用的学术来源时调用。
-    与 search_knowledge_base（本地私有知识库）、deep_research（多智能体深度调研报告）的区别：
+    与 search_knowledge_base（本地私有知识库）、deep_research（多智能体调研报告）的区别：
     本工具是【面向公开学术数据库的直接检索】，快速返回带标题/作者/年份/摘要/链接的论文列表。
 
     需在 .env 设置 ACADEMIC_MCP_ENABLED=true 并安装对应 MCP server（默认走 arXiv）。

@@ -19,7 +19,7 @@ def _get_graph():
 
 @clawgent_tool
 def deep_research(query: str, context: str = "", max_revisions: int = 2, thread_id: str = "") -> str:
-    """执行深度多智能体调研，自动完成任务拆解、联网检索、多角度分析和报告生成。
+    """执行多智能体调研，自动完成任务拆解、联网检索、多角度分析和报告生成。
     适用场景：技术选型、行业调研、企业知识库分析、复杂决策评审。
     支持联网搜索（需配置 TAVILY_API_KEY）和本地知识库混合检索。
 
@@ -121,4 +121,4 @@ def deep_research(query: str, context: str = "", max_revisions: int = 2, thread_
         header += "\n"
         return header + report if report else header + "（报告生成失败，请检查 LLM 配置）"
     except Exception as e:
-        return f"深度调研执行失败：{e}（请检查 TAVILY_API_KEY 和 RAG_LLM_API_KEY 配置）"
+        return f"调研执行失败：{e}（请检查 TAVILY_API_KEY 和 RAG_LLM_API_KEY 配置）"
