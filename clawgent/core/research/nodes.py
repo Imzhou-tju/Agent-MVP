@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -59,6 +60,7 @@ from .plan_validation import (
     TaskSuccessCriteriaEvaluator,
 )
 from .sop import select_sop
+from .store import get_store
 from .semantic import ClaimEvidenceSemanticVerifier
 from .reliability import reliable_llm_call, ReliableLLM
 from .evidence import (
@@ -114,6 +116,30 @@ def _get_llm() -> ChatOpenAI:
         base_url=config.RAG_LLM_BASE_URL,
         temperature=0.3,
     )
+
+
+def _run_id(state: ResearchStateDict) -> str:
+    """一次调研的唯一标识，持久化各表的外键。state 里没有就按 query + 时间戳生成。"""
+    rid = str(state.get("run_id", "") or "")
+    if not rid:
+        rid = stable_id("R", str(state.get("original_query", "")), str(time.time()))
+    return rid
+
+
+def _persist(run_id: str, snapshot: dict, gate: dict | None = None) -> None:
+    """把本节点产出的实体写入 SQLite。失败只打印，不阻断调研流程。
+
+    持久化是旁路：内存 state 仍是主链路，写库失败不影响调研继续跑。
+    """
+    if not run_id:
+        return
+    try:
+        store = get_store()
+        store.persist_state(run_id, snapshot)
+        if gate is not None:
+            store.upsert_plan_gate(run_id, gate)
+    except Exception as e:
+        print(f"[Research] 持久化失败（不阻断流程）: {e}")
 
 
 def _parse_json(raw: str) -> Any:
@@ -246,8 +272,21 @@ def planner_node(state: ResearchStateDict) -> Command:
     plan_validation_issues = [i.to_dict() for i in gate_result.issues
                               if i.recommended_action in ("add_task", "remove_task")]
 
+    # 落库：run 主记录 + DAG + 质量闸门快照
+    run_id = _run_id(state)
+    _persist(run_id, {
+        "original_query": query,
+        "research_context": context,
+        "sop_type": sop.sop_type,
+        "plan_summary": _plan_summary(dag),
+        "tasks": dag.to_dicts(),
+        "issues": plan_validation_issues,
+        "ledger_events": ledger.delta(),
+    }, gate=gate_result.to_dict())
+
     return Command(
         update={
+            "run_id": run_id,
             "tasks": dag.to_dicts(),
             "plan": plan.to_dict(),
             "plan_summary": _plan_summary(dag),
@@ -349,6 +388,11 @@ async def researcher_node(state: ResearchStateDict) -> ResearchStateDict:
         task.status = "FAILED"
         ledger.append(TASK_FAILED, task_id=task.task_id, round_no=round_no,
                       reason="检索无结果", queries=queries)
+        _persist(_run_id(state), {
+            "original_query": original_query,
+            "tasks": [task.to_dict()],
+            "ledger_events": ledger.delta(),
+        })
         return _packet_update(task, ResearchPacket(
             task_id=task.task_id, searched_queries=queries,
             status="FAILED", error="检索无结果",
@@ -522,6 +566,19 @@ async def researcher_node(state: ResearchStateDict) -> ResearchStateDict:
                   task_id=task.task_id, round_no=round_no,
                   evidence_count=len(evidence_ids))
 
+    # 落库：本任务登记的来源 / 抽取的证据 / 声明 / 声明-证据关系 / 结果包
+    _persist(_run_id(state), {
+        "original_query": original_query,
+        "tasks": [task.to_dict()],
+        "sources": sources_out,
+        "evidences": evidences_out,
+        "claims": claims_out,
+        "relations": relations_out,
+        "task_results": [packet.to_dict()],
+        "round_no": round_no,
+        "ledger_events": ledger.delta(),
+    })
+
     return _packet_update(task, packet, sources_out, evidences_out, claims_out,
                           relations_out, ledger, source_texts)
 
@@ -595,6 +652,17 @@ def aggregator_node(state: ResearchStateDict) -> ResearchStateDict:
     support = _support_stats(state.get("evidences", []), claims)
 
     ledger = _ledger(state)
+
+    # 落库：Aggregator 推导出的 Claim 支撑状态与关联关系
+    _persist(_run_id(state), {
+        "tasks": state.get("tasks", []),
+        "sources": state.get("sources", []),
+        "evidences": state.get("evidences", []),
+        "claims": claims,
+        "relations": relations,
+        "ledger_events": ledger.delta(),
+    })
+
     return {
         "claims": claims,
         "relations": relations,
@@ -772,6 +840,17 @@ def review_node(state: ResearchStateDict) -> ResearchStateDict:
             ledger.append(ISSUE_FOUND, issue_type=gap.issue_type,
                           severity=gap.severity, target_id=gap.target_id)
 
+    # 落库：评审产出的结构化问题
+    _persist(_run_id(state), {
+        "tasks": tasks,
+        "claims": state.get("claims", []),
+        "evidences": evidences,
+        "relations": state.get("relations", []),
+        "issues": issues,
+        "round_no": state.get("round_no", 0),
+        "ledger_events": ledger.delta(),
+    })
+
     return {
         "issues": issues,
         "review": review.to_dict(),
@@ -896,6 +975,13 @@ def repair_node(state: ResearchStateDict) -> ResearchStateDict:
         else:
             print(f"[Repair] 新增任务被拒绝({reason}): {task.task_id}")
 
+    # 落库：局部修补后的 DAG
+    _persist(_run_id(state), {
+        "tasks": dag.to_dicts(),
+        "round_no": round_no,
+        "ledger_events": ledger.delta(),
+    })
+
     return {
         "tasks": dag.to_dicts(),
         "round_no": round_no,
@@ -975,6 +1061,12 @@ def judge_node(state: ResearchStateDict) -> Command:
             reason = f"连续 {stagnant} 轮无新证据，按现有 {usable} 条可用声明成文"
         ledger.append(VERDICT, round_no=round_no, verdict=verdict, reason=reason)
         ledger.append(PROGRESS_LOG, round_no=round_no, payload=progress_entry)
+        _persist(_run_id(state), {
+            "verdict": verdict, "verdict_reason": reason,
+            "tasks": dag.to_dicts(),
+            "claims": state.get("claims", []),
+            "ledger_events": ledger.delta(),
+        })
         return Command(
             update={"verdict": verdict, "verdict_reason": reason,
                     "last_evidence_count": ev_total, "stagnant_rounds": stagnant,
@@ -997,6 +1089,12 @@ def judge_node(state: ResearchStateDict) -> Command:
             reason = f"存在 {len(ready)} 个可执行修订任务（revision），继续局部补查"
         ledger.append(VERDICT, round_no=round_no, verdict=verdict, reason=reason)
         ledger.append(PROGRESS_LOG, round_no=round_no, payload=progress_entry)
+        _persist(_run_id(state), {
+            "verdict": verdict, "verdict_reason": reason,
+            "tasks": dag.to_dicts(),
+            "claims": state.get("claims", []),
+            "ledger_events": ledger.delta(),
+        })
         return Command(
             update={"verdict": verdict, "verdict_reason": reason,
                     "tasks": dag.to_dicts(),
@@ -1027,6 +1125,12 @@ def judge_node(state: ResearchStateDict) -> Command:
 
     ledger.append(VERDICT, round_no=round_no, verdict=verdict, reason=reason)
     ledger.append(PROGRESS_LOG, round_no=round_no, payload=progress_entry)
+    _persist(_run_id(state), {
+        "verdict": verdict, "verdict_reason": reason,
+        "tasks": dag.to_dicts(),
+        "claims": state.get("claims", []),
+        "ledger_events": ledger.delta(),
+    })
     return Command(
         update={"verdict": verdict, "verdict_reason": reason,
                 "last_evidence_count": ev_total, "stagnant_rounds": stagnant,
@@ -1201,9 +1305,24 @@ def compiler_node(state: ResearchStateDict) -> ResearchStateDict:
 
     # 把报告正文按二级标题切分为结构化小节，便于下游/UI 取用（含程序追加的参考来源与可追溯性）
     sections = _split_sections(report)
+    final_report = report + limitations
+
+    # 落库：最终报告 + 本轮全部实体（最后一次全量同步）
+    _persist(_run_id(state), {
+        "final_report": final_report,
+        "verdict": state.get("verdict", ""),
+        "verdict_reason": state.get("verdict_reason", ""),
+        "tasks": state.get("tasks", []),
+        "sources": sources,
+        "evidences": evidences,
+        "claims": state.get("claims", []),
+        "relations": state.get("relations", []),
+        "issues": state.get("issues", []),
+        "ledger_events": ledger.delta(),
+    })
 
     return {
-        "final_report": report + limitations,
+        "final_report": final_report,
         "report_sections": sections,
         "citation_issues": issues,
         "citation_binding": binding,

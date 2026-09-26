@@ -163,6 +163,7 @@ class ResearchState:
 
     def __init__(self):
         # 输入
+        self.run_id: str = ""                # 一次调研的唯一标识，持久化主键
         self.original_query: str = ""
         self.research_context: str = ""
 
@@ -218,6 +219,8 @@ class ResearchState:
 
 class ResearchStateDict(TypedDict, total=False):
     # ---------------- 输入 ----------------
+    # 一次调研的唯一标识，由 Planner 生成，作为持久化各表的外键
+    run_id: str
     original_query: str
     research_context: str
 
