@@ -54,12 +54,11 @@ from .dag import MAX_REPAIR_TASKS, ResearchPacket, ResearchPlan, ResearchTask, T
 from .review import ResearchReview, build_review
 from .plan_validation import (
     EvidenceCoverageValidator,
-    PlanCoverageValidator,
-    PlanSchemaValidator,
+    PlanGate,
     SemanticPlanCritic,
     TaskSuccessCriteriaEvaluator,
-    validate_plan,
 )
+from .sop import select_sop
 from .semantic import ClaimEvidenceSemanticVerifier
 from .reliability import reliable_llm_call, ReliableLLM
 from .evidence import (
@@ -220,17 +219,17 @@ def planner_node(state: ResearchStateDict) -> Command:
     ledger.append(PLAN_CREATED, task_count=len(dag.tasks),
                   query=query, summary=_plan_summary(dag))
 
-    # ---- 计划验证（§Plan Verification，执行前）----
-    # SchemaValidator（确定性）→ CoverageValidator（确定性）→ SemanticCritic（LLM）
-    # → LocalRepair。验证就地修补 DAG，结果写入 plan_validation 供追溯。
-    # required_capabilities 默认由 task_type 推导维度兜底（未显式声明时覆盖校验退化为空）。
+    # ---- 计划质量闸门（§Plan Gate，执行前）----
+    # SOP(关键词选型) → PlanValidator(确定性) → PlanCritic(1次) → Repair(1次) → 门控裁决。
+    # 验证就地修补 DAG，结果写入 plan_gate / plan_validation 供追溯。
+    sop = select_sop(query)
     critic = SemanticPlanCritic(llm=llm)
-    validation = validate_plan(dag, plan, query=query, critic=critic,
-                               max_repairs=MAX_REPAIR_TASKS)
+    gate = PlanGate(sop=sop, critic=critic)
+    gate_result = gate.run(dag, plan, query=query)
     plan.tasks = list(dag.tasks.values())  # repair 可能就地增删任务，回写 plan
 
-    # 把确定性 coverage 缺失（MISSING_CAPABILITY）转成 issue，交给 repair 复用同一套机制
-    plan_validation_issues = [i.to_dict() for i in validation.issues
+    # 把门控问题转成 issue，交给 repair 复用同一套机制
+    plan_validation_issues = [i.to_dict() for i in gate_result.issues
                               if i.recommended_action in ("add_task", "remove_task")]
 
     return Command(
@@ -239,7 +238,9 @@ def planner_node(state: ResearchStateDict) -> Command:
             "plan": plan.to_dict(),
             "plan_summary": _plan_summary(dag),
             "round_no": 0,
-            "plan_validation": validation.to_dict(),
+            "plan_validation": gate_result.to_dict(),
+            "plan_gate": gate_result.to_dict(),
+            "sop_type": sop.sop_type,
             "issues": plan_validation_issues,
             "repaired_issue_ids": [i["issue_id"] for i in plan_validation_issues],
             "ledger_events": ledger.delta(),

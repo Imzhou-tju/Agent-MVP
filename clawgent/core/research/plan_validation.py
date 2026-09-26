@@ -53,6 +53,13 @@ ISSUE_REDUNDANT_TASK = "REDUNDANT_TASK"
 ISSUE_COARSE_TASK = "COARSE_TASK"
 ISSUE_COVERAGE_GAP = "COVERAGE_GAP"
 
+# Plan Gate 专项问题类型（§4）：针对 Planner 拆分质量的确定性判断
+ISSUE_MISSING_COVERAGE = "MISSING_COVERAGE"          # 未覆盖用户问题/SOP 要求维度
+ISSUE_INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE"  # Comparison/Synthesis 无 evidence ancestor
+ISSUE_PREMATURE_SYNTHESIS = "PREMATURE_SYNTHESIS"     # 过早进入 Comparison/Synthesis
+ISSUE_INSUFFICIENT_DEPENDENCY = "INSUFFICIENT_DEPENDENCY"  # 下游缺少必要依赖
+ISSUE_BAD_GRANULARITY = "BAD_GRANULARITY"             # 任务包含过多明显动作
+
 # 每个 task_type 应当能提供的 capability（供 Coverage 做「依赖能提供输入」的语义判断）
 _TASK_TYPE_CAPABILITY = {
     "FACT": "fact",
@@ -437,7 +444,7 @@ class SemanticPlanCritic:
             for t in plan.tasks
         )
         prompt = (
-            "你是研究计划评审员。检查下面的研究计划是否真正覆盖用户问题。\n\n"
+            "你是研究计划评审员。只判断：这个计划是否足以合理回答用户问题。\n\n"
             f"用户问题: {query}\n\n"
             f"计划目标: {plan.objective}\n"
             f"计划约束: {plan.constraints or '无'}\n"
@@ -445,12 +452,11 @@ class SemanticPlanCritic:
             f"任务 DAG:\n{task_text}\n\n"
             "检查是否存在以下问题：遗漏关键研究维度 / 无意义或冗余任务 / "
             "不合理依赖 / 应拆分但过于粗粒度的任务 / 无法支撑最终回答的任务。\n"
-            "只输出 JSON，不要输出其它内容：\n"
-            '{"valid": false, "issues": [{"type": "MISSING_TASK", "target": "t3", '
-            '"severity": "HIGH", "description": "...", "recommended_action": "ADD_TASK", '
-            '"suggested_task": {"question": "...", "task_type": "FACT", '
-            '"capabilities": ["method"], "dependencies": []}}]}\n'
-            "没有问题时输出 {\"valid\": true, \"issues\": []}。\n"
+            "只输出 JSON，不要输出其它内容，issue 最多 3 个：\n"
+            '{"decision": "REPAIR", "issues": [{"issue_type": "MISSING_RESEARCH_ANGLE", '
+            '"severity": "HIGH", "target_task_id": "t3", "description": "...", '
+            '"recommended_action": "ADD_TASK"}]}\n'
+            "没有问题或计划足以回答时输出 {\"decision\": \"PASS\", \"issues\": []}。\n"
             "注意：只给局部修改建议，不要重新生成完整 DAG。"
         )
         try:
@@ -464,10 +470,10 @@ class SemanticPlanCritic:
             return []
 
         issues: list[PlanIssue] = []
-        for ri in raw_issues:
+        for ri in raw_issues[:3]:  # §5：最多 3 个 issue
             if not isinstance(ri, dict):
                 continue
-            itype = _normalize_critic_type(str(ri.get("type", "")).upper())
+            itype = _normalize_critic_type(str(ri.get("issue_type", ri.get("type", ""))).upper())
             desc = str(ri.get("description", "")).strip()
             if not desc:
                 continue
@@ -477,7 +483,7 @@ class SemanticPlanCritic:
             action = str(ri.get("recommended_action", "none") or "none").lower()
             action = {"add_task": "add_task", "remove_task": "remove_task",
                       "reopen_task": "reopen_task"}.get(action, "none")
-            target = str(ri.get("target", "") or "")
+            target = str(ri.get("target_task_id", ri.get("target", "")) or "")
             suggested = ri.get("suggested_task", {}) or {}
             if not isinstance(suggested, dict):
                 suggested = {}
@@ -612,6 +618,13 @@ def _apply_local_repair(dag: TaskDAG, issues: list[PlanIssue], max_repairs: int)
         ok, _reason = dag.add_task(task)
         if ok:
             repaired += 1
+            # §6 允许「补 dependency」：若 issue 指向某个目标任务（如过早进入
+            # Comparison/Synthesis），把补出来的证据任务挂成它的上游依赖，
+            # 使 PREMATURE_SYNTHESIS / INSUFFICIENT_EVIDENCE 能被真正消除。
+            if issue.target_id and issue.target_id in dag.tasks:
+                target = dag.tasks[issue.target_id]
+                if task.task_id not in target.dependencies:
+                    target.dependencies.append(task.task_id)
     return repaired
 
 
@@ -646,3 +659,345 @@ def _new_task_id(dag: TaskDAG, hint: str) -> str:
         i += 1
         tid = f"{base}-{i}"
     return tid
+
+
+# ---------------------------------------------------------------------------
+# Plan Gate：Planner 质量闸门（§任务：实现 Planner 质量闸门）
+# ---------------------------------------------------------------------------
+#
+# 目标：以尽量低的额外 LLM 成本提高 Plan 可靠性。
+# 流程（§7）：
+#   User Query → Planner → SOP → PlanValidator(确定性) → PlanCritic(1次)
+#     → PASS → Scheduler
+#     → FAIL → Repair(1次) → Validator → Scheduler / Reject
+#
+# 边界（§2）：只改 Planner 阶段；不碰 Researcher / Evidence / Claim / Review /
+# Judge / RAG / MCP / Runtime Agent。DAG 调度逻辑复用。
+
+# 门控决策
+GATE_ALLOW = "ALLOW"
+GATE_ALLOW_WITH_WARNINGS = "ALLOW_WITH_WARNINGS"
+GATE_REJECT = "REJECT"
+
+# 「能提供证据 / 事实」的上游任务类型：Comparison / Synthesis 必须有此类祖先
+_EVIDENCE_PROVIDER_TYPES = ("FACT", "MECHANISM", "METHOD", "RESULT", "BACKGROUND",
+                            "EVALUATION", "TREND")
+
+# 需要证据祖先支撑的任务类型（过早进入即 PREMATURE_SYNTHESIS）
+_EVIDENCE_DEPENDENT_TYPES = ("COMPARISON", "SYNTHESIS")
+
+# 动作连接词：objective/question 里出现多个，判为 BAD_GRANULARITY（一个任务塞了过多动作）
+_GRANULARITY_CONNECTORS = ("并且", "同时", "以及", "另外", "此外", "还要", "既要", "又要",
+                           "和", "与", "并")
+
+
+@dataclass
+class GateResult:
+    """Plan Gate 的最终门控结果。"""
+
+    decision: str = GATE_ALLOW                      # ALLOW / ALLOW_WITH_WARNINGS / REJECT
+    issues: list[PlanIssue] = field(default_factory=list)
+    validator_issues: list[PlanIssue] = field(default_factory=list)
+    critic_issues: list[PlanIssue] = field(default_factory=list)
+    repair_count: int = 0
+    critic_called: bool = False
+    critic_failed: bool = False
+    sop_type: str = "FACT"
+
+    def to_dict(self) -> dict:
+        return {
+            "decision": self.decision,
+            "issues": [i.to_dict() for i in self.issues],
+            "validator_issues": [i.to_dict() for i in self.validator_issues],
+            "critic_issues": [i.to_dict() for i in self.critic_issues],
+            "repair_count": self.repair_count,
+            "critic_called": self.critic_called,
+            "critic_failed": self.critic_failed,
+            "sop_type": self.sop_type,
+        }
+
+
+def _ancestors(dag: TaskDAG, task_id: str) -> set[str]:
+    """返回 task_id 的所有祖先（直接 + 间接上游），不含自身。"""
+    result: set[str] = set()
+    stack = list(dag.tasks.get(task_id, ResearchTask(task_id="")).dependencies)
+    seen: set[str] = set()
+    while stack:
+        cur = stack.pop()
+        if cur in seen:
+            continue
+        seen.add(cur)
+        if cur not in dag.tasks:
+            continue
+        result.add(cur)
+        stack.extend(dag.tasks[cur].dependencies)
+    return result
+
+
+def _has_evidence_ancestor(dag: TaskDAG, task: ResearchTask) -> bool:
+    """判断任务是否有「能提供事实/证据」的祖先。"""
+    for anc in _ancestors(dag, task.task_id):
+        at = dag.tasks.get(anc)
+        if at is None:
+            continue
+        if str(at.task_type or _DEFAULT_TASK_TYPE).upper() in _EVIDENCE_PROVIDER_TYPES:
+            return True
+    return False
+
+
+def _task_blob(task: ResearchTask) -> str:
+    return " ".join(str(x) for x in (task.objective, task.question) if x).strip()
+
+
+class PlanValidator:
+    """Planner 质量的确定性校验器（纯 Python，不调外部 API，§4）。
+
+    在既有 PlanSchemaValidator / PlanCoverageValidator 之上，补针对「拆分质量」的判断：
+    - required_dimensions 覆盖（MISSING_COVERAGE）
+    - Comparison / Synthesis 是否有 evidence ancestor（INSUFFICIENT_EVIDENCE）
+    - 过早进入 Comparison / Synthesis（PREMATURE_SYNTHESIS）
+    - 明显重复任务（REDUNDANT_TASK）
+    - 任务塞了过多明显动作（BAD_GRANULARITY）
+    - 明显错误依赖（BAD_DEPENDENCY，复用 SchemaValidator）
+
+    不做 0~1 plan score。
+    """
+
+    def __init__(self, sop: "ResearchSOP | None" = None):
+        self._sop = sop
+
+    def validate(self, dag: TaskDAG, plan: ResearchPlan | None = None) -> list[PlanIssue]:
+        issues: list[PlanIssue] = []
+
+        # 1. 结构（复用 SchemaValidator）+ 依赖语义
+        issues.extend(PlanSchemaValidator().validate(dag))
+
+        # 2. SOP required 维度覆盖（MISSING_COVERAGE）
+        issues.extend(self._check_coverage(dag, plan))
+
+        # 3. Comparison / Synthesis 证据祖先（INSUFFICIENT_EVIDENCE / PREMATURE_SYNTHESIS）
+        issues.extend(self._check_evidence_dependency(dag))
+
+        # 4. 明显重复任务（REDUNDANT_TASK）
+        issues.extend(self._check_redundancy(dag))
+
+        # 5. 任务粒度（BAD_GRANULARITY）
+        issues.extend(self._check_granularity(dag))
+
+        return issues
+
+    def _check_coverage(self, dag: TaskDAG, plan: ResearchPlan | None) -> list[PlanIssue]:
+        """SOP 要求覆盖的维度，是否被任务覆盖。
+
+        覆盖来源：任务的显式 capabilities + 任务 task_type 自动提供的维度
+        （如 BACKGROUND 提供 object_definition，FACT 提供 evidence）。
+        """
+        required: list[str] = []
+        if self._sop is not None:
+            required = list(self._sop.required_dimensions)
+        if plan is not None:
+            # 计划显式声明的维度覆盖（或扩展）SOP 维度
+            declared = list(plan.required_capabilities or plan.required_dimensions or [])
+            if declared:
+                required = declared
+
+        if not required:
+            return []
+
+        from .sop import task_type_dimensions
+
+        covered: set[str] = set()
+        for t in dag.tasks.values():
+            for c in t.capabilities:
+                covered.add(str(c).lower())
+            covered.update(task_type_dimensions(t.task_type))
+
+        issues: list[PlanIssue] = []
+        for r in required:
+            rl = str(r).lower()
+            if rl in covered:
+                continue
+            issues.append(PlanIssue(
+                ISSUE_MISSING_COVERAGE,
+                f"SOP 要求覆盖维度 {r!r}，但没有任务覆盖",
+                severity="high", target_type="plan",
+                recommended_action="add_task", capability=r,
+                suggested_task={
+                    "question": f"补充关于 {r} 的研究",
+                    "task_type": capability_to_task_type(r),
+                    "capabilities": [r],
+                    "dependencies": [],
+                },
+            ))
+        return issues
+
+    def _check_evidence_dependency(self, dag: TaskDAG) -> list[PlanIssue]:
+        """Comparison / Synthesis 必须有 evidence ancestor，否则过早。"""
+        issues: list[PlanIssue] = []
+        for t in dag.tasks.values():
+            tt = str(t.task_type or _DEFAULT_TASK_TYPE).upper()
+            if tt not in _EVIDENCE_DEPENDENT_TYPES:
+                continue
+            if _has_evidence_ancestor(dag, t):
+                continue
+            if tt == "SYNTHESIS":
+                issues.append(PlanIssue(
+                    ISSUE_PREMATURE_SYNTHESIS,
+                    f"任务 {t.task_id} 是 SYNTHESIS，但没有任何证据型祖先，"
+                    f"属于过早进入综合",
+                    severity="high", target_id=t.task_id,
+                    recommended_action="add_task",
+                    suggested_task={
+                        "question": f"为 {t.task_id} 补充事实/机制类证据任务",
+                        "task_type": "FACT",
+                        "capabilities": ["evidence"],
+                        "dependencies": [],
+                    },
+                ))
+            else:
+                issues.append(PlanIssue(
+                    ISSUE_INSUFFICIENT_EVIDENCE,
+                    f"任务 {t.task_id} 是 {tt}，但没有任何证据型祖先，"
+                    f"对比结论缺乏事实支撑",
+                    severity="high", target_id=t.task_id,
+                    recommended_action="add_task",
+                    suggested_task={
+                        "question": f"为 {t.task_id} 补充对象的事实性证据",
+                        "task_type": "FACT",
+                        "capabilities": ["evidence"],
+                        "dependencies": [],
+                    },
+                ))
+        return issues
+
+    def _check_redundancy(self, dag: TaskDAG) -> list[PlanIssue]:
+        """明显重复任务：两个任务 objective+question 高度相似（归一化后相同/互为子串）。"""
+        issues: list[PlanIssue] = []
+        tasks = list(dag.tasks.values())
+        for i in range(len(tasks)):
+            for j in range(i + 1, len(tasks)):
+                a = _task_blob(tasks[i]).strip()
+                b = _task_blob(tasks[j]).strip()
+                if not a or not b:
+                    continue
+                if a == b or a in b or b in a:
+                    # 优先保留 task_id 更小/更靠前的，删除后者
+                    victim = tasks[j]
+                    issues.append(PlanIssue(
+                        ISSUE_REDUNDANT_TASK,
+                        f"任务 {victim.task_id} 与 {tasks[i].task_id} 重复",
+                        severity="medium", target_id=victim.task_id,
+                        recommended_action="remove_task",
+                    ))
+        return issues
+
+    def _check_granularity(self, dag: TaskDAG) -> list[PlanIssue]:
+        """任务粒度：objective/question 里出现 >=3 个动作连接词，判为塞了过多动作。"""
+        issues: list[PlanIssue] = []
+        for t in dag.tasks.values():
+            blob = _task_blob(t)
+            if not blob:
+                continue
+            hits = sum(1 for c in _GRANULARITY_CONNECTORS if c in blob)
+            if hits >= 3:
+                issues.append(PlanIssue(
+                    ISSUE_BAD_GRANULARITY,
+                    f"任务 {t.task_id} 目标包含 {hits} 个并列动作，粒度过粗，建议拆分",
+                    severity="medium", target_id=t.task_id,
+                    recommended_action="none",
+                ))
+        return issues
+
+
+# 兼容旧 import：从 sop 导入（延迟，避免打包时循环依赖）
+def capability_to_task_type(capability: str) -> str:
+    from .sop import capability_to_task_type as _f
+    return _f(capability)
+
+
+class PlanGate:
+    """Planner 质量闸门（§7）。
+
+    编排：
+        1. PlanValidator 确定性校验；
+        2. 有 HIGH 问题 → 先 Repair 一次；
+        3. PlanCritic 一次（最多 1 次 LLM 调用）；
+        4. Critic 判 REPAIR → Repair 一次；
+        5. 终态 validator 校验 → ALLOW / ALLOW_WITH_WARNINGS / REJECT。
+
+    约束：Planner 1 次、Critic 1 次、Repair 1 次（本 gate 内）。
+    Critic 调用失败 → 只用 Validator 结果：无 HIGH → ALLOW_WITH_WARNINGS，有 HIGH → REJECT。
+
+    critic / repair 均可注入 Fake 实现（离线测试，§8）。
+    """
+
+    def __init__(self, sop: "ResearchSOP | None" = None,
+                 critic: "SemanticPlanCritic | None" = None,
+                 validator: PlanValidator | None = None):
+        self._sop = sop
+        self._validator = validator or PlanValidator(sop=sop)
+        self._critic = critic
+
+    def run(self, dag: TaskDAG, plan: ResearchPlan, query: str = "") -> GateResult:
+        result = GateResult()
+        if self._sop is not None:
+            result.sop_type = self._sop.sop_type
+
+        # 1. 确定性校验
+        validator_issues = self._validator.validate(dag, plan)
+        result.validator_issues = validator_issues
+
+        # 2. 有 HIGH → 先 Repair 一次（确定性修补）
+        if _has_high(validator_issues):
+            result.repair_count += _apply_local_repair(dag, validator_issues, MAX_REPAIRS)
+
+        # 3. Critic（最多 1 次）
+        if self._critic is not None:
+            result.critic_called = True
+            try:
+                critic_issues = self._critic.critique(query, plan)
+                result.critic_issues = critic_issues
+            except Exception:
+                critic_issues = []
+                result.critic_failed = True
+        else:
+            critic_issues = []
+
+        # 4. Critic 判 REPAIR → Repair 一次
+        if critic_issues:
+            result.repair_count += _apply_local_repair(dag, critic_issues, MAX_REPAIRS)
+
+        # 5. 终态校验（repair 后的最终问题集合）
+        final_issues = self._validator.validate(dag, plan)
+        result.issues = _dedupe_issues(final_issues)
+
+        if _has_high(final_issues):
+            result.decision = GATE_REJECT
+        elif result.critic_failed and _has_high(validator_issues):
+            # Critic 失败 fallback：只用 validator 结果，有 HIGH → REJECT
+            result.decision = GATE_REJECT
+        elif result.issues:
+            result.decision = GATE_ALLOW_WITH_WARNINGS
+        else:
+            result.decision = GATE_ALLOW
+        return result
+
+
+# 单次 gate 内 repair 的上限（§6：最多 1 次局部修补，且不重建整棵 DAG）
+MAX_REPAIRS = 3
+
+
+def _has_high(issues: list[PlanIssue]) -> bool:
+    return any(i.severity == "high" for i in issues)
+
+
+def _dedupe_issues(issues: list[PlanIssue]) -> list[PlanIssue]:
+    seen: set[str] = set()
+    out: list[PlanIssue] = []
+    for i in issues:
+        k = _issue_id(i)
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(i)
+    return out

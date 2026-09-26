@@ -173,6 +173,9 @@ class ResearchState:
         self.round_no: int = 0
         # 计划验证（§Plan Verification）：执行前 Schema/Coverage/Critic 的结果快照
         self.plan_validation: dict = field(default_factory=dict)
+        # 计划质量闸门（§Plan Gate）：SOP 选型 + Validator + Critic + Repair 的门控结果
+        self.plan_gate: dict = field(default_factory=dict)
+        self.sop_type: str = ""
         # 执行后 Evidence/Claim 覆盖验证的结果快照
         self.coverage_validation: dict = field(default_factory=dict)
 
@@ -226,6 +229,9 @@ class ResearchStateDict(TypedDict, total=False):
     round_no: int
     # 计划验证（§Plan Verification）：执行前与执行后的验证快照
     plan_validation: dict
+    # 计划质量闸门（§Plan Gate）：SOP 选型 + Validator + Critic + Repair 门控结果
+    plan_gate: dict
+    sop_type: str
     coverage_validation: dict
 
     # ---------------- Researcher（Send 并发写入，必须有 reducer）----------------
