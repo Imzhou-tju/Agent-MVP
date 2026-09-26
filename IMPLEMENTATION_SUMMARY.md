@@ -109,3 +109,48 @@ deep_research(query, context, max_revisions, thread_id)       # tools/research_t
 - **rerank 远程依赖**：`rerank_status=FALLBACK` 时退回向量分，排序质量下降，已记录但报告未单独标注。
 - **Skill 命名空间改造为前缀式**：所有动态技能工具名统一加 `skill_` 前缀，调用侧（如提示词里的工具名引用）需同步；既有按裸名引用的地方需复核。
 - **Ledger 落盘依赖守护线程**：`log_research_event` 经内存队列异步写盘，`audit_logger.flush()` 仅 `queue.join()` 等待，不保证进程硬崩溃前的最后几条必达。
+
+---
+
+## 6. Plan Verification & Repair（追加，`research/plan_validation.py`）
+
+在 Planner 生成 DAG 之后、Scheduler 之前补一层「计划验证」，并在研究执行后补「证据覆盖验证」。不改 Scheduler / Researcher / 检索 / Evidence 结构，全部复用现有 ResearchPlan / ResearchTask / TaskDAG。
+
+### 流程
+
+```
+执行前：Planner → PlanSchemaValidator → PlanCoverageValidator → SemanticPlanCritic
+              → LocalRepair → ValidatedPlan → Scheduler
+执行后：Evidence/Claim → EvidenceCoverageValidator → PASS/GAP → LocalRepair Task
+```
+
+### 新增组件（`research/plan_validation.py`）
+
+| 组件 | 类型 | 职责 |
+|---|---|---|
+| `PlanSchemaValidator` | 确定性 | 8 项结构检查：task_id 唯一、依赖存在、无自依赖、无环、task_type 合法、必要字段非空、root 可达、依赖「能提供输入」 |
+| `PlanCoverageValidator` | 确定性 | `required_capabilities - covered_capabilities` 集合覆盖，缺失输出 `MISSING_CAPABILITY`（带 add_task 建议） |
+| `TaskSuccessCriteriaEvaluator` | 确定性 | 按结构化 criteria 判 `PASS/PARTIAL/FAIL`（字段出现 / 来源类型 / 证据条数） |
+| `EvidenceCoverageValidator` | 确定性 | 执行后校验 Evidence/Claim 是否覆盖 plan 关键维度，缺失输出 `COVERAGE_GAP` |
+| `SemanticPlanCritic` | LLM | 对 (Question, Plan, DAG) 语义检查，只给局部修改建议，不重建 DAG；异常静默降级 |
+| `validate_plan` / `_apply_local_repair` | 编排 | Schema→Coverage→Critic→LocalRepair 串联；local repair 只 add_task/remove_task，受 `max_repairs` 上限 |
+
+### 字段扩展（向后兼容，全部带默认值）
+
+- `ResearchTask.capabilities: list[str]`、`ResearchTask.criteria: dict`（结构化完成条件）。
+- `ResearchPlan.required_dimensions / required_capabilities: list[str]`（计划必须覆盖的维度/能力）。
+- `TaskDAG.reachable_from_roots()` / `roots()`（root 可达性检查用）。
+- `state.plan_validation` / `state.coverage_validation`（验证结果快照，可追溯）。
+
+### 兼容性
+
+- 所有新字段带默认值，旧 dict 走 `from_dict` 白名单过滤，不丢旧字段、不报错。
+- `repair_node` 动作集合扩展 `remove_task`（计划验证删除冗余/不可达任务），并保留原 add_task/reopen_task 逻辑。
+- `planner_node` 内联调用验证链（不新增 LangGraph 节点，图拓扑不变）。
+- `review_node` 内联 `EvidenceCoverageValidator`，把 COVERAGE_GAP 并入 issues 交给 repair。
+
+### 已知局限
+
+- `required_capabilities` 目前需 Planner 声明或由调用方注入；Planner 尚未从 query 自动推导维度（可后续加规则）。
+- `SemanticPlanCritic` 语义判断依赖 LLM，异常时静默降级为空（不影响流程）。
+- 未新增端到端测试（按边界要求）；各组件用 importlib+stub 做了确定性单测。

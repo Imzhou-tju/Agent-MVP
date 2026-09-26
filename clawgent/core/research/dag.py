@@ -72,6 +72,12 @@ class ResearchTask:
     search_strategy: str = ""
     dependencies: list[str] = field(default_factory=list)
     success_criteria: str = ""
+    # 结构化完成条件（§Plan Verification）：required_fields / required_source_types /
+    # min_evidence_count，供 TaskSuccessCriteriaEvaluator 做确定性 PASS/PARTIAL/FAIL。
+    # 与字符串 success_criteria 并存：后者仍给 LLM 读，前者给程序判。
+    criteria: dict = field(default_factory=dict)
+    # 该任务覆盖的研究维度/能力标签（§Plan Coverage），如 method / dataset / comparison。
+    capabilities: list[str] = field(default_factory=list)
     priority: int = 1
     status: str = PENDING
     round_added: int = 0
@@ -90,6 +96,9 @@ class ResearchTask:
         # LLM 可能把 dependencies 输出成 None 或非字符串
         t.dependencies = [str(x) for x in (t.dependencies or []) if x]
         t.preferred_sources = [str(x) for x in (t.preferred_sources or []) if x]
+        t.capabilities = [str(x) for x in (t.capabilities or []) if x]
+        if not isinstance(t.criteria, dict):
+            t.criteria = {}
         return t
 
     def to_dict(self) -> dict:
@@ -103,6 +112,8 @@ class ResearchTask:
             "search_strategy": self.search_strategy,
             "dependencies": list(self.dependencies),
             "success_criteria": self.success_criteria,
+            "criteria": dict(self.criteria),
+            "capabilities": list(self.capabilities),
             "priority": self.priority,
             "status": self.status,
             "round_added": self.round_added,
@@ -155,6 +166,10 @@ class ResearchPlan:
     constraints: str = ""
     source_policy: str = ""
     success_criteria: str = ""
+    # 计划必须覆盖的研究维度/能力（§Plan Coverage）。由 Planner 声明或按规则兜底，
+    # 供 PlanCoverageValidator 做集合覆盖判断。为空表示不启用覆盖校验（向后兼容）。
+    required_dimensions: list[str] = field(default_factory=list)
+    required_capabilities: list[str] = field(default_factory=list)
     tasks: list[ResearchTask] = field(default_factory=list)
     task_dicts: list[dict] = field(default_factory=list)  # 序列化视图
 
@@ -165,6 +180,8 @@ class ResearchPlan:
             "constraints": self.constraints,
             "source_policy": self.source_policy,
             "success_criteria": self.success_criteria,
+            "required_dimensions": list(self.required_dimensions),
+            "required_capabilities": list(self.required_capabilities),
             "tasks": [t.to_dict() for t in self.tasks],
         }
 
@@ -176,6 +193,11 @@ class ResearchPlan:
         kwargs["tasks"] = tasks
         plan = cls(**kwargs)
         plan.task_dicts = [t.to_dict() for t in tasks]
+        # 归一化：维度/能力列表去空去重
+        plan.required_dimensions = list(dict.fromkeys(
+            str(x) for x in (plan.required_dimensions or []) if x))
+        plan.required_capabilities = list(dict.fromkeys(
+            str(x) for x in (plan.required_capabilities or []) if x))
         return plan
 
 
@@ -396,6 +418,28 @@ class TaskDAG:
     # ------------------------------------------------------------------
     # 查询
     # ------------------------------------------------------------------
+
+    def roots(self) -> list[str]:
+        """无依赖的任务（入度为 0），即 DAG 的 root。"""
+        return [tid for tid, t in self.tasks.items() if not t.dependencies]
+
+    def reachable_from_roots(self) -> set[str]:
+        """从所有 root 出发能到达的任务集合（含 root 本身）。
+
+        无法从 root 到达的任务是「悬挂」任务——它永远不会被调度执行。
+        供 PlanSchemaValidator 检查 root 可达性。
+        """
+        reachable: set[str] = set()
+        stack = list(self.roots())
+        while stack:
+            cur = stack.pop()
+            if cur in reachable:
+                continue
+            reachable.add(cur)
+            for tid, t in self.tasks.items():
+                if cur in t.dependencies and tid not in reachable:
+                    stack.append(tid)
+        return reachable
 
     def is_complete(self) -> bool:
         return all(t.status in TERMINAL_STATES for t in self.tasks.values())

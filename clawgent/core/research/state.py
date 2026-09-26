@@ -171,6 +171,10 @@ class ResearchState:
         self.plan: dict = field(default_factory=dict)   # ResearchPlan.to_dict()
         self.plan_summary: str = ""
         self.round_no: int = 0
+        # 计划验证（§Plan Verification）：执行前 Schema/Coverage/Critic 的结果快照
+        self.plan_validation: dict = field(default_factory=dict)
+        # 执行后 Evidence/Claim 覆盖验证的结果快照
+        self.coverage_validation: dict = field(default_factory=dict)
 
         # Researcher（Send 并发）→ 全部走语义化 reducer
         self.task_results: list[dict] = []
@@ -220,6 +224,9 @@ class ResearchStateDict(TypedDict, total=False):
     plan: dict                              # ResearchPlan.to_dict()，覆盖合并
     plan_summary: str
     round_no: int
+    # 计划验证（§Plan Verification）：执行前与执行后的验证快照
+    plan_validation: dict
+    coverage_validation: dict
 
     # ---------------- Researcher（Send 并发写入，必须有 reducer）----------------
     task_results: Annotated[list[dict], merge_task_results]

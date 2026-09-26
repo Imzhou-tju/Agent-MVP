@@ -52,6 +52,14 @@ from .citation import (
 )
 from .dag import MAX_REPAIR_TASKS, ResearchPacket, ResearchPlan, ResearchTask, TaskDAG
 from .review import ResearchReview, build_review
+from .plan_validation import (
+    EvidenceCoverageValidator,
+    PlanCoverageValidator,
+    PlanSchemaValidator,
+    SemanticPlanCritic,
+    TaskSuccessCriteriaEvaluator,
+    validate_plan,
+)
 from .semantic import ClaimEvidenceSemanticVerifier
 from .reliability import reliable_llm_call, ReliableLLM
 from .evidence import (
@@ -212,12 +220,28 @@ def planner_node(state: ResearchStateDict) -> Command:
     ledger.append(PLAN_CREATED, task_count=len(dag.tasks),
                   query=query, summary=_plan_summary(dag))
 
+    # ---- 计划验证（§Plan Verification，执行前）----
+    # SchemaValidator（确定性）→ CoverageValidator（确定性）→ SemanticCritic（LLM）
+    # → LocalRepair。验证就地修补 DAG，结果写入 plan_validation 供追溯。
+    # required_capabilities 默认由 task_type 推导维度兜底（未显式声明时覆盖校验退化为空）。
+    critic = SemanticPlanCritic(llm=llm)
+    validation = validate_plan(dag, plan, query=query, critic=critic,
+                               max_repairs=MAX_REPAIR_TASKS)
+    plan.tasks = list(dag.tasks.values())  # repair 可能就地增删任务，回写 plan
+
+    # 把确定性 coverage 缺失（MISSING_CAPABILITY）转成 issue，交给 repair 复用同一套机制
+    plan_validation_issues = [i.to_dict() for i in validation.issues
+                              if i.recommended_action in ("add_task", "remove_task")]
+
     return Command(
         update={
             "tasks": dag.to_dicts(),
             "plan": plan.to_dict(),
             "plan_summary": _plan_summary(dag),
             "round_no": 0,
+            "plan_validation": validation.to_dict(),
+            "issues": plan_validation_issues,
+            "repaired_issue_ids": [i["issue_id"] for i in plan_validation_issues],
             "ledger_events": ledger.delta(),
         },
         goto="scheduler",
@@ -622,6 +646,17 @@ def review_node(state: ResearchStateDict) -> ResearchStateDict:
     # 确定性评审（§29）：基于支撑状态与 ConflictDetector
     review = build_review(claims, evidences, tasks, state.get("relations", []))
 
+    # 执行后覆盖验证（§Evidence Coverage）：Evidence/Claim 是否覆盖 plan 的关键维度。
+    # 缺失维度输出 COVERAGE_GAP issue（recommended_action=add_task），
+    # 交给 repair_node 局部补任务，而不是重建 DAG。
+    coverage_result = None
+    plan_dict = state.get("plan", {}) or {}
+    plan = ResearchPlan.from_dict(plan_dict) if plan_dict else None
+    if plan is not None:
+        coverage_result = EvidenceCoverageValidator().validate(
+            plan, claims=state.get("claims", []), evidences=evidences,
+        )
+
     claims_text = "\n".join(
         f"- [{c.get('claim_id','')}]({c.get('status','')}) {c.get('text','')}"
         + (f"｜适用范围：{c['scope']}" if c.get("scope") else "")
@@ -713,7 +748,21 @@ def review_node(state: ResearchStateDict) -> ResearchStateDict:
     for s in review.scope_mismatches:
         issues.append(_conflict_issue(s, "SCOPE_MISMATCH", "medium"))
 
-    return {"issues": issues, "review": review.to_dict(), "ledger_events": ledger.delta()}
+    # 执行后覆盖验证的 COVERAGE_GAP 也并入 issues（recommended_action=add_task，触发补任务）
+    coverage_dict: dict = {}
+    if coverage_result is not None:
+        coverage_dict = coverage_result.to_dict()
+        for gap in coverage_result.issues:
+            issues.append(gap.to_dict())
+            ledger.append(ISSUE_FOUND, issue_type=gap.issue_type,
+                          severity=gap.severity, target_id=gap.target_id)
+
+    return {
+        "issues": issues,
+        "review": review.to_dict(),
+        "coverage_validation": coverage_dict,
+        "ledger_events": ledger.delta(),
+    }
 
 
 def _conflict_issue(pair: dict, issue_type: str, severity: str) -> dict:
@@ -755,10 +804,12 @@ def repair_node(state: ResearchStateDict) -> ResearchStateDict:
     repaired = set(state.get("repaired_issue_ids", []) or [])
     # 同一个 issue 只处理一次：issue_id 由 (类型, 目标, 描述) 哈希得到，
     # 评审在下一轮重复提出同一个问题时不会重复补任务（§34）。
+    # 动作集合扩展：add_task / reopen_task / remove_task（计划验证会产出 remove_task，
+    # 用于删除冗余或不可达任务）。
     pending = [i for i in state.get("issues", [])
                if i.get("severity") in ("high", "medium")
                and (i.get("recommended_action") or i.get("suggested_action"))
-                   in ("add_task", "reopen_task")
+                   in ("add_task", "reopen_task", "remove_task")
                and i.get("issue_id", "") not in repaired]
 
     added = 0
@@ -770,6 +821,17 @@ def repair_node(state: ResearchStateDict) -> ResearchStateDict:
             if target and dag.reopen(target, reason=issue.get("description", "")):
                 ledger.append(TASK_REOPENED, task_id=target, round_no=round_no,
                               reason=issue.get("description", ""))
+                acted.append(issue.get("issue_id", ""))
+            continue
+
+        if action == "remove_task":
+            # 删除冗余/不可达任务：仅当该任务无下游时删除，避免破坏依赖链
+            target = issue.get("target_id", "")
+            if target and dag.has(target) and not any(
+                    target in t.dependencies for t in dag.tasks.values()):
+                del dag.tasks[target]
+                ledger.append(TASK_FAILED, task_id=target, round_no=round_no,
+                              reason=f"计划验证删除：{issue.get('description','')}")
                 acted.append(issue.get("issue_id", ""))
             continue
 
@@ -799,6 +861,8 @@ def repair_node(state: ResearchStateDict) -> ResearchStateDict:
             expected_evidence=str(spec.get("expected_evidence", "")),
             search_strategy=str(spec.get("search_strategy", "")),
             dependencies=deps,
+            capabilities=[str(c) for c in (spec.get("capabilities") or []) if c],
+            criteria=spec.get("criteria", {}) or {},
             priority=2,
             round_added=round_no,
             parent_task_id=parent,
