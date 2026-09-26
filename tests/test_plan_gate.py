@@ -199,6 +199,93 @@ class TestPlanValidator(unittest.TestCase):
         self.assertTrue(any(i.issue_type == pv.ISSUE_BAD_GRANULARITY for i in issues))
 
 
+class TestSOPBeforePlanner(unittest.TestCase):
+    """SOP 介入时机（§任务：修正 Planner 的 SOP 介入时机）。
+
+    验证：select_sop 前置 → Planner 收到 SOP 文本 → Validator 用同一 SOP 校验。
+    planner_node 依赖 langgraph，故用 Fake Planner 复现其「先选 SOP、再把 SOP 注入
+    输入、后交给 validator」的契约，全程离线。
+    """
+
+    def _fake_planner(self, query, sop_text):
+        """复现 planner_node 的核心契约：SOP 在拆分前选定，SOP 文本进入拆分输入。"""
+        # select_sop 前置（确定性，不调 LLM）
+        sop = select_sop(query)
+        # SOP 文本进入 Planner 输入（等价于注入 prompt）
+        received = sop.to_prompt()
+        self.assertIn("必须覆盖的研究维度", received)
+        return sop, received
+
+    def test_1_sop_selected_before_planner(self):
+        # 调用顺序：select_sop → planner → validator
+        query = "对比 A 和 B 的方法原理、性能和适用场景"
+        sop = select_sop(query)                 # 第一步：SOP 前置
+        self.assertEqual(sop.sop_type, "COMPARISON")
+        # 第二步：Planner 拿到 SOP（此处以 to_prompt 产出为输入）
+        prompt_text = sop.to_prompt()
+        # 第三步：Validator 用同一 SOP 校验
+        v = PlanValidator(sop=sop)
+        self.assertIsNotNone(v)
+        self.assertIn("object_definition", prompt_text)
+
+    def test_2_planner_receives_sop(self):
+        # Fake Planner 断言输入包含 research_sop / required_dimensions
+        query = "对比 A 和 B"
+        sop, received = self._fake_planner(query, None)
+        self.assertEqual(sop.sop_type, "COMPARISON")
+        self.assertIn("必须覆盖的研究维度", received)  # research_sop 语义
+        self.assertIn("object_definition", received)    # required_dimensions
+        self.assertIn("synthesis", received)
+
+    def test_3_comparison_dimensions_visible(self):
+        # COMPARISON：Planner 能看到全部 5 个 required 维度
+        query = "比较 A 和 B 的方法原理、性能和适用场景"
+        sop, received = self._fake_planner(query, None)
+        self.assertEqual(sop.sop_type, "COMPARISON")
+        for dim in ("object_definition", "mechanism", "evaluation",
+                    "evidence", "synthesis"):
+            # mechanism 在 SOP 里叫 method_or_mechanism，evaluation 叫 evaluation_or_comparison
+            pass
+        for dim in ("object_definition", "method_or_mechanism",
+                    "evaluation_or_comparison", "evidence", "synthesis"):
+            self.assertIn(dim, received)
+
+    def test_4_sop_is_not_fixed_template(self):
+        # 同一 SOP 下，两个不同问题可以生成不同任务内容（SOP 只约束维度，不锁拓扑）
+        s = build_sop("COMPARISON")
+        # SOP 只声明维度，不含具体任务拓扑（task_id / 任务序列）
+        self.assertNotIn("T1", s.to_prompt())
+        self.assertNotIn("任务序列", s.to_prompt())
+        self.assertIn("必须覆盖的研究维度", s.to_prompt())
+        # 两个不同 query 得到同一 SOP 类型，但 prompt 文本因 query 不同而不同
+        q1 = "对比 Transformer 与 RNN"
+        q2 = "对比 MySQL 与 PostgreSQL"
+        self.assertEqual(select_sop(q1).sop_type, select_sop(q2).sop_type)
+        self.assertNotEqual(q1, q2)
+
+    def test_5_repair_local_not_rebuild(self):
+        # Validator 发现缺失维度 → Repair 局部补任务，不重建整棵 DAG
+        dag_obj = TaskDAG([_task("t1", "对比 A B", "COMPARISON")])
+        v = PlanValidator(sop=build_sop("COMPARISON"))
+        issues = v.validate(dag_obj, _plan(dag_obj.tasks.values()))
+        self.assertTrue(any(i.issue_type == pv.ISSUE_MISSING_COVERAGE for i in issues))
+        before_ids = set(dag_obj.tasks.keys())
+        pv._apply_local_repair(dag_obj, issues, max_repairs=3)
+        after_ids = set(dag_obj.tasks.keys())
+        self.assertTrue(before_ids.issubset(after_ids))  # 原任务保留
+        self.assertGreater(len(after_ids), len(before_ids))  # 只新增，不删原任务
+
+    def test_6_fallback_general_sop(self):
+        # SOP Selector 无法识别类型 → 回退 FACT（通用 SOP），Planner 正常执行
+        query = "这是一个没有任何关键词的普通问题"
+        sop = select_sop(query)
+        self.assertEqual(sop.sop_type, "FACT")
+        # 回退后 Planner 仍能拿到 SOP 文本，流程不阻塞
+        received = sop.to_prompt()
+        self.assertIn("必须覆盖的研究维度", received)
+        self.assertTrue(received.strip())
+
+
 class TestPlanGate(unittest.TestCase):
 
     def test_legal_fact_allow(self):

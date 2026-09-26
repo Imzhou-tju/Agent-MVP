@@ -77,13 +77,41 @@ _CAPABILITY_TO_TASK_TYPE = {
 }
 
 
+# 每类 SOP 的规划原则：告诉 Planner 拆任务时该注意什么（不是固定拓扑，是生成约束）。
+_PLANNING_PRINCIPLES: dict[str, list[str]] = {
+    "FACT": [
+        "以拿到可引用的事实性结论为核心，任务围绕「某对象是什么 / 有何事实证据」展开",
+        "优先把对象定义与事实证据拆成独立任务，避免一个任务同时定义和取证",
+    ],
+    "COMPARISON": [
+        "先分别建立各对象的定义与事实，再进入方法/机制与评价对比",
+        "对比与综合结论必须依赖前置的事实/证据任务，不能凭空对比",
+        "评价维度的横向对比要落在证据上，不是泛泛罗列",
+    ],
+    "MECHANISM": [
+        "先定义对象，再拆「工作原理 / 作用机制」，最后落到证据支撑",
+        "机制解释要能对应到具体证据，不要只给名词性描述",
+    ],
+    "SURVEY": [
+        "先铺背景与对象定义，再按方法/机制、评价/对比分维展开，最后综合",
+        "综述的每一类方法都要有证据支撑，不能只列名称",
+    ],
+}
+
+
 @dataclass
 class ResearchSOP:
-    """一类研究的标准作业程序：声明应覆盖的维度，不规定固定拓扑。"""
+    """一类研究的标准作业程序：声明应覆盖的维度，不规定固定拓扑。
+
+    - required_dimensions / optional_dimensions：该覆盖哪些维度；
+    - planning_principles：拆任务时的生成约束（给 Planner 看的先验）。
+    三者都不规定「先做 A 再做 B」的固定拓扑，拓扑仍由 Planner 决定。
+    """
 
     sop_type: str = "FACT"                    # FACT / COMPARISON / MECHANISM / SURVEY
     required_dimensions: list[str] = field(default_factory=list)
     optional_dimensions: list[str] = field(default_factory=list)
+    planning_principles: list[str] = field(default_factory=list)
 
     @property
     def dimensions(self) -> list[str]:
@@ -95,7 +123,22 @@ class ResearchSOP:
             "sop_type": self.sop_type,
             "required_dimensions": list(self.required_dimensions),
             "optional_dimensions": list(self.optional_dimensions),
+            "planning_principles": list(self.planning_principles),
         }
+
+    def to_prompt(self) -> str:
+        """把 SOP 转成给 Planner 看的中文提示文本（§2）。
+
+        只陈述「该覆盖什么维度 + 拆任务时的生成约束」，不含固定任务拓扑。
+        """
+        lines = [f"SOP 类型：{self.sop_type}"]
+        lines.append("必须覆盖的研究维度：" + "、".join(self.required_dimensions))
+        if self.optional_dimensions:
+            lines.append("可选维度（有依据时可省略）：" + "、".join(self.optional_dimensions))
+        if self.planning_principles:
+            lines.append("拆任务时的规划约束：")
+            lines.extend(f"- {p}" for p in self.planning_principles)
+        return "\n".join(lines)
 
 
 def build_sop(sop_type: str) -> ResearchSOP:
@@ -108,6 +151,7 @@ def build_sop(sop_type: str) -> ResearchSOP:
         sop_type=key,
         required_dimensions=list(d["required"]),
         optional_dimensions=list(d["optional"]),
+        planning_principles=list(_PLANNING_PRINCIPLES.get(key, [])),
     )
 
 

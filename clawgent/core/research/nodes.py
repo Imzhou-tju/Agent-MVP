@@ -149,11 +149,26 @@ def planner_node(state: ResearchStateDict) -> Command:
     query = state.get("original_query", "")
     context = state.get("research_context", "")
 
+    # SOP 前置（§SOP 介入时机）：先选研究 SOP，再让 Planner 依据 SOP 拆任务。
+    # select_sop 是关键词规则，确定性、不调 LLM；无法识别类型时回退 FACT，不阻塞。
+    sop = select_sop(query)
+
     prompt = (
-        "你是科研调研规划师。把调研问题拆成 3-6 个研究任务，并标明任务之间的依赖。\n\n"
-        f"调研问题: {query}\n"
-        + (f"背景信息: {context}\n" if context else "")
-        + "\n任务字段说明：\n"
+        "你正在为科研文献调研生成 ResearchTask DAG。\n\n"
+        f"用户问题：\n{query}\n\n"
+        f"科研调研 SOP：\n{sop.to_prompt()}\n\n"
+        + (f"背景信息：\n{context}\n\n" if context else "")
+        + "请根据用户问题，将 SOP 中适用的研究维度实例化为具体研究任务。\n"
+        "要求：\n"
+        "1. SOP 是规划先验，不是固定 DAG 模板；\n"
+        "2. 必须覆盖 SOP 要求的必要研究维度；\n"
+        "3. 根据具体问题判断任务粒度，不得机械生成固定任务；\n"
+        "4. 根据「后续任务是否依赖前序研究结果」建立 dependency；\n"
+        "5. Comparison / Synthesis 类任务原则上应依赖必要的事实或证据任务；\n"
+        "6. 不适用的 optional 维度可以省略，但必须有合理依据；\n"
+        "7. 任务应能够最终支撑用户问题的回答；\n"
+        "8. 保持现有 3-6 个任务的规模约束。\n\n"
+        "任务字段说明：\n"
         "- task_id: 形如 t1、t2\n"
         "- objective: 这个任务要回答什么\n"
         "- question: 用于检索的具体问题\n"
@@ -220,9 +235,8 @@ def planner_node(state: ResearchStateDict) -> Command:
                   query=query, summary=_plan_summary(dag))
 
     # ---- 计划质量闸门（§Plan Gate，执行前）----
-    # SOP(关键词选型) → PlanValidator(确定性) → PlanCritic(1次) → Repair(1次) → 门控裁决。
+    # SOP(前置已选) → PlanValidator(确定性) → PlanCritic(1次) → Repair(1次) → 门控裁决。
     # 验证就地修补 DAG，结果写入 plan_gate / plan_validation 供追溯。
-    sop = select_sop(query)
     critic = SemanticPlanCritic(llm=llm)
     gate = PlanGate(sop=sop, critic=critic)
     gate_result = gate.run(dag, plan, query=query)
