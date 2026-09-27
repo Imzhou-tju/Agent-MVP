@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CyberClaw 多智能体 DAG 流程动态演进演示</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --border: #334155;
+    --text: #f8fafc;
+    --muted: #94a3b8;
+    --accent: #3b82f6;
+    --green: #10b981;
+    --amber: #f59e0b;
+    --purple: #8b5cf6;
+    --cyan: #06b6d4;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+    overflow-x: hidden;
+  }
+
+  /* 顶部状态与控制栏 */
+  .control-header {
+    width: 100%;
+    max-width: 1040px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  }
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .status-badge {
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    background: rgba(59, 130, 246, 0.2);
+    color: var(--cyan);
+    border: 1px solid rgba(6, 182, 212, 0.4);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--cyan);
+    animation: blink 1.2s infinite;
+  }
+  @keyframes blink { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.8); } }
+
+  .header-controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+  button {
+    background: #334155;
+    border: 1px solid #475569;
+    color: #f8fafc;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  button:hover { background: #475569; border-color: #64748b; }
+  button.primary { background: var(--accent); border-color: var(--accent); }
+  button.primary:hover { background: #2563eb; }
+
+  /* 宏观流水线阶段条 */
+  .stepper-container {
+    width: 100%;
+    max-width: 1040px;
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .step-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 11.5px;
+    transition: all 0.3s;
+    opacity: 0.35;
+    transform: translateY(2px);
+  }
+  .step-card.active {
+    opacity: 1;
+    border-color: var(--accent);
+    background: rgba(30, 41, 59, 0.9);
+    box-shadow: 0 0 14px rgba(59, 130, 246, 0.25);
+    transform: translateY(0);
+  }
+  .step-card.done {
+    opacity: 0.9;
+    border-color: var(--green);
+    border-top: 3px solid var(--green);
+  }
+  .step-title { font-weight: 700; color: #fff; margin-bottom: 2px; }
+  .step-sub { font-size: 10px; color: var(--muted); }
+
+  /* 核心 DAG 画布 */
+  .dag-stage-box {
+    width: 100%;
+    max-width: 1040px;
+    height: 440px;
+    background: #0b1120;
+    background-image: 
+      radial-gradient(#1e293b 1.2px, transparent 1.2px);
+    background-size: 24px 24px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: inset 0 2px 10px rgba(0,0,0,0.5);
+  }
+
+  /* SVG 连线层 */
+  .svg-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  /* 动态线条生长与流动 */
+  .flow-track {
+    stroke: #1e293b;
+    stroke-width: 4px;
+    fill: none;
+    stroke-linecap: round;
+  }
+  .flow-grow {
+    stroke: #38bdf8;
+    stroke-width: 2.2px;
+    fill: none;
+    stroke-linecap: round;
+    transition: stroke-dashoffset 1s ease-out;
+  }
+  .flow-active {
+    stroke-dasharray: 8 6;
+    animation: lineFlow 1s linear infinite;
+  }
+  @keyframes lineFlow {
+    from { stroke-dashoffset: 28; }
+    to { stroke-dashoffset: 0; }
+  }
+
+  /* 节点卡片样式 */
+  .dag-node {
+    position: absolute;
+    width: 215px;
+    background: #1e293b;
+    border: 1.5px solid #334155;
+    border-radius: 10px;
+    padding: 12px 14px;
+    z-index: 2;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    opacity: 0;
+    transform: scale(0.85) translateY(10px);
+    transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .dag-node.visible {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  .dag-node.RUNNING {
+    border-color: #38bdf8;
+    border-left: 5px solid #38bdf8;
+    box-shadow: 0 0 20px rgba(56, 189, 248, 0.35);
+  }
+  .dag-node.COMPLETED {
+    border-color: #10b981;
+    border-left: 5px solid #10b981;
+    box-shadow: 0 0 14px rgba(16, 185, 129, 0.2);
+  }
+  .dag-node-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    margin-bottom: 4px;
+  }
+  .dag-node-tag {
+    font-weight: 700;
+    color: var(--muted);
+    letter-spacing: 0.5px;
+  }
+  .node-state-pill {
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 9px;
+    font-weight: 800;
+  }
+  .node-state-pill.RUNNING { background: rgba(56, 189, 248, 0.25); color: #38bdf8; }
+  .node-state-pill.COMPLETED { background: rgba(16, 185, 129, 0.25); color: #34d399; }
+
+  .dag-node-name {
+    font-size: 13.5px;
+    font-weight: 700;
+    color: #f1f5f9;
+    margin-bottom: 4px;
+    line-height: 1.3;
+  }
+  .dag-node-meta {
+    font-size: 11px;
+    color: #94a3b8;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .dag-node-asset {
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px dashed #334155;
+    font-size: 11px;
+    color: #34d399;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  /* 底部日志与成果预览 */
+  .bottom-deck {
+    width: 100%;
+    max-width: 1040px;
+    margin-top: 16px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .deck-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    height: 140px;
+    overflow-y: auto;
+    font-size: 12px;
+  }
+  .deck-card h3 {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted);
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .log-line {
+    padding: 3px 0;
+    font-family: monospace;
+    font-size: 11px;
+    color: #cbd5e1;
+    display: flex;
+    gap: 8px;
+  }
+  .log-time { color: #64748b; }
+  .log-tag { color: #38bdf8; font-weight: 600; }
+
+  /* 报告成文卡片 */
+  .report-snippet {
+    background: #0b1120;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 10px 12px;
+    line-height: 1.6;
+    color: #e2e8f0;
+    font-size: 11.5px;
+  }
+  .cite-badge {
+    color: #38bdf8;
+    background: rgba(56, 189, 248, 0.15);
+    padding: 0 4px;
+    border-radius: 3px;
+    font-weight: 700;
+    border: 1px solid rgba(56, 189, 248, 0.3);
+  }
+
+  /* 进度条 */
+  .timeline-bar-box {
+    width: 100%;
+    max-width: 1040px;
+    background: #1e293b;
+    border-radius: 4px;
+    height: 6px;
+    margin-top: 12px;
+    overflow: hidden;
+    position: relative;
+  }
+  .timeline-progress {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #3b82f6, #10b981);
+    transition: width 0.1s linear;
+  }
+</style>
+</head>
+<body>
+
+  <!-- 控制与状态头 -->
+  <div class="control-header">
+    <div class="header-left">
+      <div style="font-weight:800; font-size:15px; color:#fff;">CyberClaw DAG 流程演进全景动画</div>
+      <div class="status-badge" id="main-status-badge">
+        <span class="status-dot"></span>
+        <span id="main-status-text">准备就绪 · 等待播放</span>
+      </div>
+    </div>
+    <div class="header-controls">
+      <span style="font-size:12px; color:var(--muted); margin-right:8px;">时序刻度: <span id="time-display" style="color:#38bdf8; font-family:monospace; font-weight:bold;">0.0s</span></span>
+      <button class="primary" id="btn-play" onclick="togglePlay()">
+        <span id="play-icon">▶</span>
+        <span id="play-text">开始演进</span>
+      </button>
+      <button onclick="resetTimeline()">重置</button>
+      <button onclick="setSpeed(1)">1x</button>
+      <button onclick="setSpeed(2)">2x</button>
+    </div>
+  </div>
+
+  <!-- 宏观阶段步进器 -->
+  <div class="stepper-container">
+    <div class="step-card" id="step-0">
+      <div class="step-title">1. SOP 规划</div>
+      <div class="step-sub">Planner 菱形拓扑拆解</div>
+    </div>
+    <div class="step-card" id="step-1">
+      <div class="step-title">2. 并发调度</div>
+      <div class="step-sub">Send API 异步派发</div>
+    </div>
+    <div class="step-card" id="step-2">
+      <div class="step-title">3. 多跳证据检索</div>
+      <div class="step-sub">RAG + Rerank 填补盲区</div>
+    </div>
+    <div class="step-card" id="step-3">
+      <div class="step-title">4. 状态归约推导</div>
+      <div class="step-sub">ID Reducer 提取 Claim</div>
+    </div>
+    <div class="step-card" id="step-4">
+      <div class="step-title">5. 红队质检审查</div>
+      <div class="step-sub">Review 交叉漏洞校验</div>
+    </div>
+    <div class="step-card" id="step-5">
+      <div class="step-title">6. 引文成文交付</div>
+      <div class="step-sub">Compiler 外键核验成文</div>
+    </div>
+  </div>
+
+  <!-- 核心动态 DAG 画布 -->
+  <div class="dag-stage-box" id="dag-stage">
+    <!-- SVG 连线流层 -->
+    <svg class="svg-layer" viewBox="0 0 1040 440">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 1 2 L 7 5 L 1 8 z" fill="#38bdf8" />
+        </marker>
+        <marker id="arrow-green" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 1 2 L 7 5 L 1 8 z" fill="#10b981" />
+        </marker>
+      </defs>
+
+      <!-- 边 1: t1 -> t2 (上分支) -->
+      <path id="track-1" d="M 275 220 C 370 220, 370 125, 435 125" class="flow-track" />
+      <path id="edge-1" d="M 275 220 C 370 220, 370 125, 435 125" class="flow-grow" stroke-dasharray="260" stroke-dashoffset="260" marker-end="url(#arrow)" />
+
+      <!-- 边 2: t1 -> t3 (下分支) -->
+      <path id="track-2" d="M 275 220 C 370 220, 370 315, 435 315" class="flow-track" />
+      <path id="edge-2" d="M 275 220 C 370 220, 370 315, 435 315" class="flow-grow" stroke-dasharray="260" stroke-dashoffset="260" marker-end="url(#arrow)" />
+
+      <!-- 边 3: t2 -> t4 (上汇流) -->
+      <path id="track-3" d="M 655 125 C 720 125, 720 220, 775 220" class="flow-track" />
+      <path id="edge-3" d="M 655 125 C 720 125, 720 220, 775 220" class="flow-grow" stroke-dasharray="240" stroke-dashoffset="240" marker-end="url(#arrow)" />
+
+      <!-- 边 4: t3 -> t4 (下汇流) -->
+      <path id="track-4" d="M 655 315 C 720 315, 720 220, 775 220" class="flow-track" />
+      <path id="edge-4" d="M 655 315 C 720 315, 720 220, 775 220" class="flow-grow" stroke-dasharray="240" stroke-dashoffset="240" marker-end="url(#arrow)" />
+    </svg>
+
+    <!-- 节点 1: 基石任务 t1-FACT -->
+    <div class="dag-node" id="node-t1" style="left: 60px; top: 172px;">
+      <div class="dag-node-header">
+        <span class="dag-node-tag">STEP 1: 基础基石</span>
+        <span class="node-state-pill RUNNING" id="pill-t1">RUNNING</span>
+      </div>
+      <div class="dag-node-name">t1-FACT: 架构基础调研</div>
+      <div class="dag-node-meta">
+        <span>🤖 Worker-0</span>
+        <span>·</span>
+        <span id="dur-t1">执行中...</span>
+      </div>
+      <div class="dag-node-asset" id="asset-t1" style="display:none;">
+        <span>📄 产出 3 篇文献切片</span>
+      </div>
+    </div>
+
+    <!-- 节点 2: 并发分支 A t2-BENCH -->
+    <div class="dag-node" id="node-t2" style="left: 440px; top: 78px;">
+      <div class="dag-node-header">
+        <span class="dag-node-tag">STEP 2A: 并发分支</span>
+        <span class="node-state-pill RUNNING" id="pill-t2">RUNNING</span>
+      </div>
+      <div class="dag-node-name">t2-BENCH: VoxCeleb 评测</div>
+      <div class="dag-node-meta">
+        <span>🤖 Worker-1</span>
+        <span>·</span>
+        <span id="dur-t2">执行中...</span>
+      </div>
+      <div class="dag-node-asset" id="asset-t2" style="display:none;">
+        <span>📊 产出基准 EER 1.12% 证据</span>
+      </div>
+    </div>
+
+    <!-- 节点 3: 并发分支 B t3-ABLATION -->
+    <div class="dag-node" id="node-t3" style="left: 440px; top: 268px;">
+      <div class="dag-node-header">
+        <span class="dag-node-tag">STEP 2B: 并发分支</span>
+        <span class="node-state-pill RUNNING" id="pill-t3">RUNNING</span>
+      </div>
+      <div class="dag-node-name">t3-ABLATION: 注意力消融</div>
+      <div class="dag-node-meta">
+        <span>🤖 Worker-2</span>
+        <span>·</span>
+        <span id="dur-t3">执行中...</span>
+      </div>
+      <div class="dag-node-asset" id="asset-t3" style="display:none;">
+        <span>🔬 产出 MHSA 恶化 28% 证据</span>
+      </div>
+    </div>
+
+    <!-- 节点 4: 汇聚任务 t4-SYNTHESIS -->
+    <div class="dag-node" id="node-t4" style="left: 780px; top: 172px;">
+      <div class="dag-node-header">
+        <span class="dag-node-tag">STEP 3: 汇聚综合</span>
+        <span class="node-state-pill RUNNING" id="pill-t4">RUNNING</span>
+      </div>
+      <div class="dag-node-name">t4-SYNTHESIS: 结论归约</div>
+      <div class="dag-node-meta">
+        <span>🤖 Synthesizer</span>
+        <span>·</span>
+        <span id="dur-t4">等待依赖...</span>
+      </div>
+      <div class="dag-node-asset" id="asset-t4" style="display:none;">
+        <span>✅ 推导 3 条已验证声明</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 播放进度条 -->
+  <div class="timeline-bar-box">
+    <div class="timeline-progress" id="timeline-progress-bar"></div>
+  </div>
+
+  <!-- 底部面板：实时审计事件与最终成文渲染 -->
+  <div class="bottom-deck">
+    <!-- 实时事件流 -->
+    <div class="deck-card">
+      <h3>
+        <span>全链路审计事件日志 (@audit_node)</span>
+        <span style="font-size:10px; font-weight:normal;">JSONL 无锁写入</span>
+      </h3>
+      <div id="log-container">
+        <div class="log-line"><span class="log-time">[14:30:00]</span> <span class="log-tag">run_start</span> 用户提交调研请求</div>
+      </div>
+    </div>
+
+    <!-- 交付研报渲染预览 -->
+    <div class="deck-card">
+      <h3>
+        <span>最终研报与引文核验结果 (Compiler)</span>
+        <span style="font-size:10px; font-weight:normal;" id="report-status">待成文...</span>
+      </h3>
+      <div class="report-snippet" id="report-container" style="opacity: 0.4;">
+        <p style="margin-bottom:6px;"><strong>语音大模型前沿架构对比调研简报</strong></p>
+        <p id="rep-line-1" style="display:none;">1. 采用 Conformer 混合时延卷积融合时序特征 <span class="cite-badge">[1]</span></p>
+        <p id="rep-line-2" style="display:none;">2. VoxCeleb 预训练微调取得 EER 1.12% 指标 <span class="cite-badge">[2]</span></p>
+        <p id="rep-line-3" style="display:none;">3. 移除多头自注意力层导致性能恶化约 28% <span class="cite-badge">[3]</span></p>
+      </div>
+    </div>
+  </div>
+
+<script>
+let currentTime = 0;
+const totalDuration = 10.0;
+let isPlaying = false;
+let playSpeed = 1.0;
+let timer = null;
+
+// 动态脚本剧本帧 (Keyframes)
+const scriptEvents = [
+  {
+    time: 0.5,
+    action: () => {
+      setStepActive(0);
+      showNode('t1', 'RUNNING', '执行中 (0.5s)');
+      appendLog('task_created', 'Planner 拆解出菱形 DAG: t1-FACT');
+      setStatus('SOP 规划完成 · 正在执行 Step 1 基础调研');
+    }
+  },
+  {
+    time: 1.8,
+    action: () => {
+      setStepDone(0);
+      setStepActive(1);
+      completeNode('t1', '2200ms', '产出 3 篇核心文献切片');
+      appendLog('task_completed', 't1-FACT 基础共识形成，注册证据切片');
+      // 分叉连线开始生长
+      growEdge('edge-1');
+      growEdge('edge-2');
+      setStatus('并发调度激活 · Send API 异步发车 t2 与 t3');
+    }
+  },
+  {
+    time: 2.8,
+    action: () => {
+      setStepDone(1);
+      setStepActive(2);
+      showNode('t2', 'RUNNING', '执行中 (双路检索)');
+      showNode('t3', 'RUNNING', '执行中 (消融分析)');
+      appendLog('task_started', '并发执行: t2-BENCH (Worker-1) & t3-ABLATION (Worker-2)');
+      setStatus('多跳证据检索中 · 向量+BM25粗排与残差盲区探测');
+    }
+  },
+  {
+    time: 4.2,
+    action: () => {
+      appendLog('rag_retrieval', 't2 暴露 Gap 并触发第 2 跳补全微调协议');
+      appendLog('evidence_registered', 't3 锁定注意力消融实验证据并挂载 source_id');
+    }
+  },
+  {
+    time: 5.6,
+    action: () => {
+      completeNode('t2', '6500ms', '产出基准 EER 1.12% 证据');
+      completeNode('t3', '7400ms', '产出 MHSA 恶化 28% 证据');
+      setStepDone(2);
+      setStepActive(3);
+      appendLog('task_completed', '双并发分支圆满执行完毕，依赖全部就绪');
+      // 汇流连线生长
+      growEdge('edge-3');
+      growEdge('edge-4');
+      setStatus('并发分支闭环 · 汇聚任务 t4 就绪发车');
+    }
+  },
+  {
+    time: 6.8,
+    action: () => {
+      showNode('t4', 'RUNNING', '归约推导中...');
+      appendLog('task_started', 't4-SYNTHESIS 启动：ID Reducer 去重去冲突');
+      setStatus('状态归约推导 · 综合基准与消融形成三条声明');
+    }
+  },
+  {
+    time: 7.8,
+    action: () => {
+      completeNode('t4', '2200ms', '推导 3 条已验证声明');
+      setStepDone(3);
+      setStepActive(4);
+      appendLog('review_issue', 'Review 红队质检核验，判定无漏洞全支撑 (CLEAN)');
+      setStatus('红队审查全绿通过 · 裁决放行成文');
+    }
+  },
+  {
+    time: 8.8,
+    action: () => {
+      setStepDone(4);
+      setStepActive(5);
+      appendLog('citation_verified', 'Compiler 外键核验：3 条声明证据外键 100% 存在');
+      // 研报打字机出现
+      document.getElementById('report-container').style.opacity = '1';
+      document.getElementById('report-status').innerText = '已核验交付';
+      document.getElementById('report-status').style.color = '#34d399';
+      document.getElementById('rep-line-1').style.display = 'block';
+      document.getElementById('rep-line-2').style.display = 'block';
+      document.getElementById('rep-line-3').style.display = 'block';
+      setStatus('引文成文交付 · 证据链路 100% 闭环');
+    }
+  },
+  {
+    time: 9.8,
+    action: () => {
+      setStepDone(5);
+      appendLog('run_end', '全链路执行成功收口，总耗时 18.2s，状态 SUCCESS');
+      setStatus('执行圆满完成 · 菱形并发拓扑全链路闭环', true);
+    }
+  }
+];
+
+let executedIndex = 0;
+
+function tick() {
+  if (!isPlaying) return;
+  currentTime += 0.1 * playSpeed;
+  if (currentTime > totalDuration) {
+    currentTime = totalDuration;
+    pause();
+    // 自动重播机制：停留 2.5 秒后自动循环重放，完美支持持续展示与动图录制
+    setTimeout(() => {
+      if (!isPlaying) {
+        resetTimeline();
+        togglePlay();
+      }
+    }, 2500);
+    return;
+  }
+
+  // 更新时钟与进度条
+  document.getElementById('time-display').innerText = currentTime.toFixed(1) + 's';
+  const pct = (currentTime / totalDuration) * 100;
+  document.getElementById('timeline-progress-bar').style.width = pct + '%';
+
+  // 触发事件
+  while (executedIndex < scriptEvents.length && currentTime >= scriptEvents[executedIndex].time) {
+    scriptEvents[executedIndex].action();
+    executedIndex++;
+  }
+}
+
+function togglePlay() {
+  if (isPlaying) {
+    pause();
+  } else {
+    play();
+  }
+}
+
+function play() {
+  isPlaying = true;
+  document.getElementById('play-icon').innerText = '⏸';
+  document.getElementById('play-text').innerText = '暂停';
+  if (!timer) {
+    timer = setInterval(tick, 100);
+  }
+}
+
+function pause() {
+  isPlaying = false;
+  document.getElementById('play-icon').innerText = '▶';
+  document.getElementById('play-text').innerText = '继续播放';
+  if (timer) {
+    clearInterval(timer);
+    timer = null;
+  }
+}
+
+function setSpeed(sp) {
+  playSpeed = sp;
+}
+
+function resetTimeline() {
+  pause();
+  currentTime = 0;
+  executedIndex = 0;
+  document.getElementById('time-display').innerText = '0.0s';
+  document.getElementById('timeline-progress-bar').style.width = '0%';
+  document.getElementById('main-status-text').innerText = '准备就绪 · 等待播放';
+  document.getElementById('play-text').innerText = '开始演进';
+
+  // 清空节点状态
+  ['t1', 't2', 't3', 't4'].forEach(id => {
+    const el = document.getElementById('node-' + id);
+    el.className = 'dag-node';
+    document.getElementById('asset-' + id).style.display = 'none';
+  });
+
+  // 清空连线
+  ['edge-1', 'edge-2', 'edge-3', 'edge-4'].forEach(eid => {
+    const el = document.getElementById(eid);
+    el.style.strokeDashoffset = el.getAttribute('stroke-dasharray');
+    el.classList.remove('flow-active');
+  });
+
+  // 清空阶段步进器
+  for (let i = 0; i < 6; i++) {
+    document.getElementById('step-' + i).className = 'step-card';
+  }
+
+  // 清空报告
+  document.getElementById('report-container').style.opacity = '0.4';
+  document.getElementById('report-status').innerText = '待成文...';
+  document.getElementById('report-status').style.color = 'var(--muted)';
+  document.getElementById('rep-line-1').style.display = 'none';
+  document.getElementById('rep-line-2').style.display = 'none';
+  document.getElementById('rep-line-3').style.display = 'none';
+
+  // 重置日志
+  document.getElementById('log-container').innerHTML = `
+    <div class="log-line"><span class="log-time">[14:30:00]</span> <span class="log-tag">run_start</span> 用户提交调研请求</div>
+  `;
+}
+
+function showNode(id, state, dur) {
+  const el = document.getElementById('node-' + id);
+  el.className = 'dag-node visible ' + state;
+  const pill = document.getElementById('pill-' + id);
+  pill.className = 'node-state-pill ' + state;
+  pill.innerText = state;
+  document.getElementById('dur-' + id).innerText = dur;
+}
+
+function completeNode(id, dur, asset) {
+  const el = document.getElementById('node-' + id);
+  el.className = 'dag-node visible COMPLETED';
+  const pill = document.getElementById('pill-' + id);
+  pill.className = 'node-state-pill COMPLETED';
+  pill.innerText = 'COMPLETED';
+  document.getElementById('dur-' + id).innerText = dur;
+  const assetEl = document.getElementById('asset-' + id);
+  assetEl.innerText = asset;
+  assetEl.style.display = 'flex';
+}
+
+function growEdge(eid) {
+  const el = document.getElementById(eid);
+  el.style.strokeDashoffset = '0';
+  setTimeout(() => {
+    el.classList.add('flow-active');
+  }, 1000);
+}
+
+function setStepActive(idx) {
+  document.getElementById('step-' + idx).className = 'step-card active';
+}
+
+function setStepDone(idx) {
+  document.getElementById('step-' + idx).className = 'step-card done';
+}
+
+function appendLog(tag, msg) {
+  const box = document.getElementById('log-container');
+  const now = new Date();
+  const timeStr = '14:30:' + (10 + Math.floor(currentTime)).toString().padStart(2, '0');
+  const div = document.createElement('div');
+  div.className = 'log-line';
+  div.innerHTML = `<span class="log-time">[${timeStr}]</span> <span class="log-tag">${tag}</span> ${msg}`;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
+function setStatus(text, success = false) {
+  const badge = document.getElementById('main-status-badge');
+  const txt = document.getElementById('main-status-text');
+  txt.innerText = text;
+  if (success) {
+    badge.style.background = 'rgba(16, 185, 129, 0.2)';
+    badge.style.borderColor = 'rgba(16, 185, 129, 0.5)';
+    badge.style.color = '#34d399';
+  } else {
+    badge.style.background = 'rgba(59, 130, 246, 0.2)';
+    badge.style.borderColor = 'rgba(6, 182, 212, 0.4)';
+    badge.style.color = 'var(--cyan)';
+  }
+}
+
+// 自动起播
+setTimeout(() => {
+  play();
+}, 600);
+</script>
+</body>
+</html>
