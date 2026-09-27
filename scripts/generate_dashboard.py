@@ -23,7 +23,7 @@ runs_data = {
         "query": "语音大模型前沿架构对比与消融实验综合调研",
         "status": "SUCCESS",
         "duration": "18.2s",
-        "tasks_summary": "4 / 4 任务闭环 (菱形并发全胜)",
+        "tasks_summary": "4 / 4 任务闭环 (菱形并发已完成)",
         "evidence_count": "7 篇切片",
         "citation_status": "100% 支撑 (3条声明已程序化核验)",
         "pipeline_stages": [
@@ -131,7 +131,7 @@ runs_data = {
                 "duration_ms": 2200,
                 "priority": 3,
                 "worker": "synthesizer_agent",
-                "produced": "推导 3 条无懈可击声明",
+                "produced": "推导 3 条已验证声明",
                 "summary": "综合基准测试与消融实验，输出全面调研结论，准备交付",
                 "dependencies": ["t2-BENCH", "t3-ABLATION"]
             }
@@ -283,7 +283,7 @@ runs_data = {
                 "duration_ms": 1800,
                 "priority": 3,
                 "worker": "synthesizer_agent",
-                "produced": "2 条无懈可击声明",
+                "produced": "2 条已验证声明",
                 "summary": "最终裁决放行成文交付",
                 "dependencies": ["t2-PERF-R1"]
             }
