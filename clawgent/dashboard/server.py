@@ -50,10 +50,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path.startswith("/api/runs") and "/" not in path[len("/api/runs"):]:
             return self._api_runs(qs)
         if path.startswith("/api/runs/"):
-            run_id = path.split("/api/runs/", 1)[1]
-            if run_id == "list":
+            tail = path[len("/api/runs/"):]
+            if tail == "list":
                 return self._api_runs(qs)
-            return self._api_run_detail(run_id, qs)
+            if tail.endswith("/dag"):
+                run_id = tail[:-4].rstrip("/")
+                return self._api_run_dag(run_id, qs)
+            return self._api_run_detail(tail, qs)
         if path == "/api/refresh":
             return self._api_refresh()
         return self._send(404, {"error": "not found"})
@@ -93,6 +96,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if detail is None:
             return self._send(404, {"error": f"run {run_id} 不存在"})
         self._send(200, detail)
+
+    def _api_run_dag(self, run_id: str, qs: dict) -> None:
+        if self.indexer is None:
+            return self._send(500, {"error": "indexer not ready"})
+        self.indexer.refresh()
+        dag_data = self.indexer.task_dag_graph(run_id)
+        self._send(200, dag_data)
 
     def _api_refresh(self) -> None:
         if self.indexer is None:

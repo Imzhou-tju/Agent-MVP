@@ -245,6 +245,7 @@ class AuditIndexer:
             s = {}
         s["events"] = self.run_events(run_id)
         s["dag"] = self.task_dag(run_id)
+        s["dag_graph"] = self.task_dag_graph(run_id)
         s["trace"] = self.evidence_trace(run_id)
         s["rag"] = self.rag_iterations(run_id)
         s["reliability"] = self.reliability(run_id)
@@ -317,6 +318,56 @@ class AuditIndexer:
                 tasks[tid]["status"] = "SKIPPED"
             tasks[tid]["duration_ms"] += ev.get("duration_ms", 0)
         return list(tasks.values())
+
+    def task_dag_graph(self, run_id: str) -> dict:
+        """还原标准有向无环图结构 (nodes & edges)，用于拓扑可视化。"""
+        raw_tasks = self.task_dag(run_id)
+        if not raw_tasks:
+            return {
+                "run_id": run_id,
+                "nodes": [],
+                "edges": [],
+                "summary": {"total_nodes": 0, "total_edges": 0, "has_reopened": False},
+            }
+
+        nodes = []
+        valid_ids = {t["task_id"] for t in raw_tasks if t.get("task_id")}
+        for t in raw_tasks:
+            tid = t.get("task_id", "")
+            if not tid:
+                continue
+            nodes.append({
+                "id": tid,
+                "label": tid,
+                "task_type": t.get("task_type", ""),
+                "status": t.get("status", "PENDING"),
+                "duration_ms": t.get("duration_ms", 0),
+                "priority": t.get("priority", 0),
+                "dependencies": list(t.get("dependencies", [])),
+            })
+
+        edges = []
+        for n in nodes:
+            for dep in n.get("dependencies", []):
+                # 过滤悬空无效依赖，确保拓扑连线稳定性
+                if dep in valid_ids:
+                    edges.append({
+                        "from": dep,
+                        "to": n["id"],
+                        "type": "dependency",
+                    })
+
+        has_reopened = any(n.get("status") == "REOPENED" for n in nodes)
+        return {
+            "run_id": run_id,
+            "nodes": nodes,
+            "edges": edges,
+            "summary": {
+                "total_nodes": len(nodes),
+                "total_edges": len(edges),
+                "has_reopened": has_reopened,
+            },
+        }
 
     def evidence_trace(self, run_id: str) -> list[dict]:
         """从 evidence_registered 事件还原 Evidence 登记信息（不读业务库）。"""

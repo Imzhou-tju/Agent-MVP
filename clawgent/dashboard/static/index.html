@@ -59,6 +59,30 @@
   .dag-node.REOPENED { border-color: var(--amber); }
   .dag-node.SKIPPED { border-color: var(--muted); }
   .dag-node.PENDING { border-color: var(--muted); }
+  
+  /* DAG 拓扑图可视化增强样式 */
+  .dag-container { position: relative; min-height: 380px; background: #fafafa;
+                   background-image: radial-gradient(#e2e8f0 1.2px, transparent 1.2px);
+                   background-size: 20px 20px; border: 1px solid var(--border);
+                   border-radius: 8px; overflow: auto; padding: 30px 20px; }
+  .dag-canvas { position: relative; min-width: 650px; min-height: 320px; }
+  .dag-svg-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+  .dag-node-item { position: absolute; width: 165px; background: #ffffff; border: 1.5px solid var(--border);
+                   border-radius: 8px; padding: 10px; font-size: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+                   cursor: pointer; transition: all 0.2s; z-index: 2; }
+  .dag-node-item:hover { transform: translateY(-2px); box-shadow: 0 6px 14px rgba(0,0,0,0.08); }
+  .dag-node-item.active { outline: 2px solid var(--accent); }
+  .dag-node-item.COMPLETED { border-color: var(--green); border-left-width: 4px; }
+  .dag-node-item.RUNNING { border-color: var(--accent); border-left-width: 4px; }
+  .dag-node-item.REOPENED { border-color: var(--amber); border-left-width: 4px; }
+  .dag-node-item.FAILED { border-color: var(--red); border-left-width: 4px; }
+  .dag-node-item.PENDING { border-color: var(--border); border-left-width: 4px; }
+  .dag-node-title { font-weight: 700; font-size: 13px; color: #1e293b; display: flex; justify-content: space-between; align-items: center; }
+  .dag-node-sub { color: var(--muted); font-size: 11px; margin-top: 4px; }
+  .dag-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .dag-legend { display: flex; gap: 12px; font-size: 11px; align-items: center; }
+  .dag-legend-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+  .dag-drawer { margin-top: 14px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: #fff; font-size: 12px; }
   .tabbar { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
   .tabbar button { background: none; border: none; color: var(--muted); padding: 8px 12px;
                    border-radius: 0; border-bottom: 2px solid transparent; }
@@ -204,18 +228,168 @@ function renderTimeline(events) {
   box.innerHTML = html + '</table>';
 }
 
+let currentDagTasks = [];
+let selectedDagTaskId = null;
+
 function renderDag(tasks) {
   const box = document.getElementById('tab-dag');
-  if (!tasks.length) { box.innerHTML = '<div class="empty">无任务 DAG</div>'; return; }
-  let html = '<div>';
-  for (const t of tasks) {
-    html += `<div class="dag-node ${t.status}">
-      <div><b>${t.task_id}</b> <span class="muted">${t.task_type||''}</span></div>
-      <div class="muted">${t.status}${t.duration_ms?' · '+t.duration_ms+'ms':''}</div>
-      ${t.dependencies && t.dependencies.length ? '<div class="muted">依赖: '+t.dependencies.join(', ')+'</div>' : ''}
-    </div>`;
+  currentDagTasks = tasks || [];
+  selectedDagTaskId = null;
+  if (!tasks || !tasks.length) {
+    box.innerHTML = '<div class="empty">无任务 DAG</div>';
+    return;
   }
-  box.innerHTML = html + '</div>';
+
+  // 1. 拓扑分层算法 (Layered DAG Ranking)
+  const taskMap = {};
+  tasks.forEach(t => taskMap[t.task_id] = t);
+  const ranks = {};
+
+  function getRank(tid, visited = new Set()) {
+    if (ranks[tid] !== undefined) return ranks[tid];
+    if (visited.has(tid)) return 0; // 防环保护
+    visited.add(tid);
+    const t = taskMap[tid];
+    if (!t || !t.dependencies || !t.dependencies.length) {
+      ranks[tid] = 0;
+      return 0;
+    }
+    let maxDepRank = -1;
+    for (const dep of t.dependencies) {
+      if (taskMap[dep]) {
+        maxDepRank = Math.max(maxDepRank, getRank(dep, new Set(visited)));
+      }
+    }
+    ranks[tid] = maxDepRank + 1;
+    return ranks[tid];
+  }
+
+  tasks.forEach(t => getRank(t.task_id));
+
+  // 2. 按 Rank 分列
+  const columns = {};
+  tasks.forEach(t => {
+    const r = ranks[t.task_id] || 0;
+    if (!columns[r]) columns[r] = [];
+    columns[r].push(t);
+  });
+
+  const nodePositions = {};
+  const colWidth = 240;
+  const rowHeight = 90;
+  const maxRank = Math.max(...Object.keys(columns).map(Number));
+
+  let maxColCount = 1;
+  Object.keys(columns).forEach(r => {
+    maxColCount = Math.max(maxColCount, columns[r].length);
+  });
+
+  const canvasWidth = Math.max(680, (maxRank + 1) * colWidth + 60);
+  const canvasHeight = Math.max(340, maxColCount * rowHeight + 80);
+
+  // 3. 计算每个节点的 X, Y
+  Object.keys(columns).forEach(r => {
+    const colList = columns[r];
+    const x = 30 + r * colWidth;
+    const startY = 40 + ((maxColCount - colList.length) * rowHeight) / 2;
+    colList.forEach((t, idx) => {
+      const y = startY + idx * rowHeight;
+      nodePositions[t.task_id] = { x, y, width: 165, height: 60, task: t };
+    });
+  });
+
+  // 4. 生成 SVG 边 (贝塞尔曲线平滑连接)
+  let svgPaths = '';
+  tasks.forEach(t => {
+    if (t.dependencies) {
+      t.dependencies.forEach(dep => {
+        const from = nodePositions[dep];
+        const to = nodePositions[t.task_id];
+        if (from && to) {
+          const x1 = from.x + from.width;
+          const y1 = from.y + from.height / 2;
+          const x2 = to.x;
+          const y2 = to.y + to.height / 2;
+          const cx1 = x1 + (x2 - x1) * 0.5;
+          const cx2 = x2 - (x2 - x1) * 0.5;
+          svgPaths += `<path d="M ${x1} ${y1} C ${cx1} ${y1}, ${cx2} ${y2}, ${x2} ${y2}"
+                             fill="none" stroke="#94a3b8" stroke-width="2" marker-end="url(#dag-arrow)" />`;
+        }
+      });
+    }
+  });
+
+  // 5. 生成 HTML 节点与工具条
+  let html = `
+    <div class="dag-toolbar">
+      <div class="dag-legend">
+        <span><i class="dag-legend-dot" style="background:var(--green)"></i>COMPLETED</span>
+        <span><i class="dag-legend-dot" style="background:var(--accent)"></i>RUNNING</span>
+        <span><i class="dag-legend-dot" style="background:var(--amber)"></i>REOPENED</span>
+        <span><i class="dag-legend-dot" style="background:var(--red)"></i>FAILED</span>
+        <span><i class="dag-legend-dot" style="background:var(--muted)"></i>PENDING</span>
+      </div>
+      <div style="font-size:12px; color:var(--muted);">节点可点击查看详情 · 自动分层有向无环图</div>
+    </div>
+    
+    <div class="dag-container">
+      <div class="dag-canvas" style="width:${canvasWidth}px; height:${canvasHeight}px;">
+        <svg class="dag-svg-layer" width="${canvasWidth}" height="${canvasHeight}">
+          <defs>
+            <marker id="dag-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#94a3b8" />
+            </marker>
+          </defs>
+          ${svgPaths}
+        </svg>`;
+
+  Object.values(nodePositions).forEach(item => {
+    const t = item.task;
+    html += `
+      <div class="dag-node-item ${t.status}" id="dag-node-${t.task_id}"
+           style="left:${item.x}px; top:${item.y}px;" onclick="selectDagNode('${t.task_id}')">
+        <div class="dag-node-title">
+          <span>${t.task_id}</span>
+          <span class="badge ${t.status}" style="font-size:9px; padding:1px 5px;">${t.status}</span>
+        </div>
+        <div class="dag-node-sub">
+          <span>${t.task_type || 'TASK'}</span>
+          <span>${t.duration_ms ? ' · ' + t.duration_ms + 'ms' : ''}</span>
+        </div>
+      </div>`;
+  });
+
+  html += `
+      </div>
+    </div>
+    <div id="dag-detail-drawer" class="dag-drawer" style="display:none;"></div>`;
+
+  box.innerHTML = html;
+}
+
+function selectDagNode(taskId) {
+  selectedDagTaskId = taskId;
+  document.querySelectorAll('.dag-node-item').forEach(el => el.classList.remove('active'));
+  const activeEl = document.getElementById('dag-node-' + taskId);
+  if (activeEl) activeEl.classList.add('active');
+
+  const task = currentDagTasks.find(t => t.task_id === taskId);
+  const drawer = document.getElementById('dag-detail-drawer');
+  if (!task || !drawer) return;
+
+  drawer.style.display = 'block';
+  drawer.innerHTML = `
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+      <h3 style="font-size:13px; font-weight:700; color:#1e293b;">任务拓扑详情: ${task.task_id}</h3>
+      <span class="badge ${task.status}">${task.status}</span>
+    </div>
+    <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-bottom:8px;">
+      <div><span class="muted">任务类型:</span> <b>${task.task_type || '-'}</b></div>
+      <div><span class="muted">优先级:</span> <b>${task.priority || 0}</b></div>
+      <div><span class="muted">执行耗时:</span> <b>${task.duration_ms ? task.duration_ms + 'ms' : '-'}</b></div>
+      <div><span class="muted">依赖节点:</span> <b>${(task.dependencies && task.dependencies.length) ? task.dependencies.join(', ') : '无 (根节点)'}</b></div>
+    </div>
+  `;
 }
 
 function renderTrace(evidences) {

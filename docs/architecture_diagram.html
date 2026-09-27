@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+<style>
+/* === 设计令牌 ===
+   北洋蓝白：沿用简历的北洋蓝 #003B70，朱红仅用于关键数值高亮，
+   整体走国自然答辩的「白底 + 深蓝标题系统 + 细线分区」路线。 */
+:root{
+  --navy:#003B70;
+  --navy-600:#12507F;
+  --steel:#4C6273;
+  --ink:#1B2733;
+  --muted:#6B7C8A;
+  --line:#C9D8E5;
+  --mist:#EEF3F8;
+  --paper:#FFFFFF;
+  --accent:#B23A2E;
+}
+
+/* === 舞台与幻灯片容器 ===
+   固定 1920×1080（16:9），整体等比缩放；显隐用 opacity/visibility，不用 display。 */
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:#D5DFE8}
+body{
+  font-family:"Noto Sans SC","Microsoft YaHei","PingFang SC","Source Han Sans SC",sans-serif;
+  color:var(--ink);
+  -webkit-font-smoothing:antialiased;
+}
+#stage{
+  position:absolute;top:50%;left:50%;
+  width:1920px;height:1080px;
+  transform:translate(-50%,-50%) scale(var(--s,1));
+  transform-origin:center center;
+  background:var(--paper);
+  overflow:hidden;
+  box-shadow:0 18px 60px rgba(0,0,0,.22);
+}
+.slide{
+  position:absolute;inset:0;
+  opacity:0;visibility:hidden;pointer-events:none;
+  transition:opacity .4s ease;
+  background:var(--paper);
+}
+.slide.active{opacity:1;visibility:visible;pointer-events:auto}
+
+/* === 页眉：标题 + 章节编号 + 双分隔线 ===
+   每页固定骨架，保证翻页时视线位置不动。 */
+.hd{position:absolute;left:72px;right:72px;top:46px}
+.hd-row{display:flex;align-items:flex-end;justify-content:space-between}
+.hd-title{display:flex;align-items:center;gap:14px}
+.hd-title .bar{width:6px;height:34px;background:var(--navy)}
+.hd-title h2{font-size:34px;font-weight:900;color:var(--navy);letter-spacing:2px;line-height:1}
+.hd-title h2 small{
+  font-family:"IBM Plex Sans","Noto Sans SC",sans-serif;
+  font-size:15px;font-weight:500;color:var(--muted);letter-spacing:1px;margin-left:10px;
+}
+.hd-num{font-family:"IBM Plex Sans",sans-serif;letter-spacing:2px;color:var(--muted);font-size:19px;text-align:right}
+.hd-num b{display:block;font-size:30px;color:var(--navy);font-weight:700;letter-spacing:1px}
+.rule{margin-top:15px;height:3px;background:var(--navy)}
+.rule::after{content:"";display:block;margin-top:4px;height:1px;background:var(--line)}
+
+/* === 内容区：上下留白压缩，换取更高信息密度 === */
+.bd{position:absolute;left:72px;right:72px;top:166px;bottom:58px;display:flex;flex-direction:column}
+
+/* === 页脚 === */
+.ft{
+  position:absolute;left:72px;right:72px;bottom:20px;
+  display:flex;justify-content:space-between;align-items:center;
+  border-top:1px solid var(--line);padding-top:8px;
+  font-size:14px;color:var(--muted);letter-spacing:1px;
+}
+.ft .dots{display:flex;gap:6px}
+.ft .dots i{width:22px;height:3px;background:var(--line);display:block}
+.ft .dots i.on{background:var(--navy)}
+
+/* === 封面 === */
+.cover{background:var(--paper)}
+.cover .bar-top{position:absolute;left:0;right:0;top:0;height:56px;background:var(--navy)}
+.cover .bar-top span{
+  position:absolute;left:72px;top:0;line-height:56px;
+  font-family:"IBM Plex Sans",sans-serif;font-size:17px;font-weight:600;
+  color:#fff;letter-spacing:4px;
+}
+.cover .bar-top em{
+  position:absolute;right:72px;top:0;line-height:56px;font-style:normal;
+  font-size:15px;color:#9FC0DC;letter-spacing:2px;
+}
+.cover-main{position:absolute;left:72px;top:150px;width:1180px}
+.cover-kicker{
+  display:inline-block;padding:5px 14px;border:1px solid var(--navy);
+  color:var(--navy);font-size:16px;letter-spacing:6px;font-weight:500;
+}
+.cover h1{
+  margin-top:30px;font-size:78px;font-weight:900;color:var(--navy);
+  letter-spacing:6px;line-height:1.1;
+}
+.cover h1 u{text-decoration:none;color:var(--accent)}
+.cover .sub{
+  margin-top:22px;font-size:26px;color:var(--ink);letter-spacing:2px;
+}
+.cover .sub b{color:var(--navy);font-weight:700}
+.cover-line{margin-top:34px;width:1180px;height:3px;background:var(--navy)}
+.cover-line::after{content:"";display:block;margin-top:4px;width:1180px;height:1px;background:var(--line)}
+
+.cover-card{
+  position:absolute;right:72px;top:150px;width:520px;
+  border:1px solid var(--line);border-top:4px solid var(--navy);
+  background:var(--mist);padding:0;
+}
+.cover-card .ch{
+  padding:14px 24px;background:var(--navy);color:#fff;
+  font-size:18px;font-weight:700;letter-spacing:3px;
+}
+.cover-card dl{padding:6px 24px 14px}
+.cover-card .row{
+  display:flex;border-bottom:1px dashed var(--line);padding:11px 0;
+}
+.cover-card .row:last-child{border-bottom:none}
+.cover-card dt{width:104px;flex:none;color:var(--muted);font-size:15px;letter-spacing:1px;padding-top:2px}
+.cover-card dd{font-size:18px;color:var(--ink);font-weight:500;line-height:1.45}
+.cover-card dd strong{color:var(--navy);font-weight:700}
+
+.cover-foot{
+  position:absolute;left:72px;right:72px;bottom:120px;
+  display:flex;align-items:flex-end;justify-content:space-between;
+}
+.cover-foot .who{font-size:44px;font-weight:900;color:var(--navy);letter-spacing:8px}
+.cover-foot .who em{font-style:normal;font-size:19px;color:var(--steel);letter-spacing:3px;font-weight:400;margin-left:16px}
+.cover-foot .meta{text-align:right;font-size:16px;color:var(--muted);line-height:1.8;letter-spacing:1px}
+.cover-foot .meta b{color:var(--navy);font-weight:700}
+
+.cover .bar-bot{position:absolute;left:0;right:0;bottom:0;height:56px;background:var(--navy)}
+.cover .bar-bot span{
+  position:absolute;left:72px;top:0;line-height:56px;color:#fff;
+  font-size:16px;letter-spacing:3px;
+}
+
+/* === 通用卡片 === */
+.card{
+  border:1px solid var(--line);border-left:4px solid var(--navy);
+  background:var(--paper);padding:20px 24px;
+}
+.card.mist{background:var(--mist)}
+.card-h{
+  display:flex;align-items:center;justify-content:space-between;
+  border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:14px;
+}
+.card-h h3{font-size:24px;font-weight:700;color:var(--navy);letter-spacing:1px}
+.card-h .tag{
+  font-size:14px;color:#fff;background:var(--navy);
+  padding:3px 12px;letter-spacing:1px;font-weight:500;
+}
+.card-h .tag.line{background:transparent;color:var(--navy);border:1px solid var(--navy)}
+
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:26px;height:100%}
+
+/* === 要点列表 === */
+.pts{list-style:none}
+.pts li{
+  position:relative;padding-left:26px;margin-bottom:13px;
+  font-size:19px;line-height:1.62;color:var(--ink);
+}
+.pts li:last-child{margin-bottom:0}
+.pts li::before{
+  content:"";position:absolute;left:6px;top:12px;
+  width:7px;height:7px;background:var(--navy);transform:rotate(45deg);
+}
+.pts li b{color:var(--navy);font-weight:700}
+.pts li strong{color:var(--accent);font-weight:700}
+.pts.sm li{font-size:17.5px;line-height:1.58;margin-bottom:10px}
+
+/* === 数值指标块 === */
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line)}
+.kpi{background:var(--paper);padding:18px 18px}
+.kpi .v{font-family:"IBM Plex Sans",sans-serif;font-size:42px;font-weight:700;color:var(--navy);line-height:1}
+.kpi .v em{font-style:normal;font-size:20px;margin-left:2px}
+.kpi .l{font-size:15px;color:var(--muted);margin-top:8px;letter-spacing:1px}
+.kpi.hot .v{color:var(--accent)}
+
+/* === 技术链路条形图 === */
+.chain{display:flex;align-items:stretch;gap:0;border:1px solid var(--line)}
+.chain .step{flex:1;padding:14px 12px;text-align:center;border-right:1px solid var(--line);background:var(--paper)}
+.chain .step:last-child{border-right:none}
+.chain .step .t{font-size:17px;font-weight:700;color:var(--navy);letter-spacing:1px}
+.chain .step .d{font-size:14px;color:var(--muted);margin-top:6px;line-height:1.45}
+.chain .step.hi{background:var(--navy)}
+.chain .step.hi .t,.chain .step.hi .d{color:#fff}
+
+/* === 表格化信息 === */
+.kv{border:1px solid var(--line)}
+.kv .r{display:flex;border-bottom:1px solid var(--line)}
+.kv .r:last-child{border-bottom:none}
+.kv .r .k{
+  width:132px;flex:none;background:var(--mist);border-right:1px solid var(--line);
+  padding:11px 16px;font-size:15px;color:var(--navy);font-weight:700;letter-spacing:1px;
+}
+.kv .r .v{padding:11px 16px;font-size:17px;line-height:1.55}
+.kv .r .v b{color:var(--accent)}
+
+/* === 时间轴 === */
+.tl{list-style:none}
+.tl li{display:flex;gap:18px;padding-bottom:16px}
+.tl .yr{
+  width:150px;flex:none;text-align:right;padding-top:2px;
+  font-family:"IBM Plex Sans",sans-serif;font-size:19px;font-weight:600;color:var(--navy);
+}
+.tl .dot{position:relative;width:14px;flex:none}
+.tl .dot::before{content:"";position:absolute;left:2px;top:8px;width:10px;height:10px;background:var(--navy);border-radius:50%}
+.tl .dot::after{content:"";position:absolute;left:6px;top:18px;bottom:-16px;width:2px;background:var(--line)}
+.tl li:last-child .dot::after{display:none}
+.tl .cx{flex:1;padding-bottom:4px}
+.tl .cx h4{font-size:20px;font-weight:700;color:var(--ink);letter-spacing:1px}
+.tl .cx p{font-size:16px;color:var(--steel);margin-top:5px;line-height:1.55}
+.tl .cx p b{color:var(--accent)}
+
+/* === 小结条 === */
+.sumband{
+  min-height:104px;border:1px solid var(--line);border-left:6px solid var(--accent);
+  background:var(--mist);display:flex;align-items:center;gap:26px;padding:16px 30px;
+}
+.sumband .t{font-size:22px;font-weight:800;color:var(--accent);letter-spacing:5px;flex:none}
+.sumband p{font-size:20px;line-height:1.7;color:var(--ink)}
+.sumband p b{color:var(--navy);font-weight:700}
+
+/* === 方案式架构图（深蓝横幅 + 分层组件框）===
+   参照阿里云方案 PPT 的画法：实心深蓝横幅做层标题、
+   浅蓝底组件框 + 实心深蓝关键节点、虚线框做并行分组、虚线红框做回流路径。 */
+.arch-banner{
+  background:var(--navy);color:#fff;text-align:center;
+  font-size:19px;font-weight:700;letter-spacing:3px;padding:10px 0;
+}
+.arch{
+  border:1px solid var(--line);background:#FBFDFF;padding:20px 18px 16px;
+}
+.a-lane{display:flex;align-items:stretch}
+.a-node{
+  flex:1;border:1.5px solid var(--navy);background:#EAF1F8;text-align:center;
+  padding:12px 6px;display:flex;flex-direction:column;justify-content:center;
+}
+.a-node .t{font-size:17px;font-weight:800;color:var(--navy);letter-spacing:.5px}
+.a-node .d{font-size:13.5px;color:var(--steel);margin-top:5px;line-height:1.45}
+.a-node.solid{background:var(--navy)}
+.a-node.solid .t{color:#fff}
+.a-node.solid .d{color:#BFD7EA}
+.a-arr{width:30px;flex:none;display:flex;align-items:center;justify-content:center}
+.a-arr::before{
+  content:"";width:0;height:0;
+  border-top:7px solid transparent;border-bottom:7px solid transparent;
+  border-left:11px solid var(--navy);
+}
+.a-group{flex:2.1;border:1.5px dashed var(--navy);padding:12px 8px 8px;display:flex;gap:8px;position:relative;background:#F4F8FC}
+.a-group .gl{
+  position:absolute;top:-10px;left:12px;background:#FBFDFF;color:var(--navy);
+  font-size:13px;font-weight:700;padding:0 8px;letter-spacing:1px;
+}
+.a-group .a-node{flex:1}
+.a-divider{margin:16px 0 14px;display:flex;align-items:center;gap:12px}
+.a-divider span{font-size:14px;font-weight:700;color:var(--muted);letter-spacing:2px}
+.a-divider i{flex:1;height:1px;background:var(--line)}
+.a-back{
+  margin-top:14px;border:1.5px dashed var(--accent);background:#FDF6F5;
+  padding:9px 16px;font-size:14.5px;color:var(--accent);text-align:center;letter-spacing:.5px;
+}
+.a-back b{font-weight:800}
+
+/* === 三栏 === */
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+
+/* === 致谢区 === */
+.thanks{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.thanks .big{font-size:60px;font-weight:900;color:var(--navy);letter-spacing:16px;text-indent:16px}
+.thanks .en{font-family:"IBM Plex Sans",sans-serif;font-size:17px;letter-spacing:7px;color:var(--muted);margin-top:20px}
+.thanks .motto{
+  margin-top:36px;font-size:19px;color:var(--steel);letter-spacing:10px;text-indent:10px;
+  border-top:1px solid var(--line);padding-top:22px;
+}
+
+/* === 第二页放大 === */
+.p2 .tl li{padding-bottom:50px}
+.p2 .tl .yr{font-size:21px}
+.p2 .tl .cx h4{font-size:23px}
+.p2 .tl .cx p{font-size:17.5px;margin-top:8px}
+.p2 .kv .r .k,.p2 .kv .r .v{padding:15px 16px;font-size:16.5px}
+
+/* === 数据表（保守学术风格） === */
+.dtab{width:100%;border-collapse:collapse;font-size:13.5px;line-height:1.35}
+.dtab th{background:var(--navy);color:#fff;font-weight:600;padding:5px 9px;text-align:left;letter-spacing:.5px}
+.dtab td{padding:4px 9px;border-bottom:1px solid var(--line);color:var(--ink)}
+.dtab tr:last-child td{border-bottom:none}
+.dtab .num{font-family:"IBM Plex Sans",sans-serif;text-align:right;white-space:nowrap}
+.dtab tr.hl td{background:var(--mist);color:var(--navy);font-weight:700}
+.dtab-note{font-size:13px;color:var(--muted);margin-top:8px;line-height:1.5}
+
+/* === 导航提示 === */
+.hint{
+  position:absolute;right:24px;bottom:24px;z-index:99;
+  font-size:13px;color:#8496A5;letter-spacing:2px;
+  background:rgba(255,255,255,.85);padding:6px 12px;border:1px solid var(--line);
+}
+</style>
+</head>
+<body>
+
+<div id="stage">
+
+  <!-- ───────────── 01 封面 ───────────── -->
+  <section class="slide cover active">
+    <div class="bar-top">
+      <span>TIANJIN UNIVERSITY</span>
+      <em>天津大学 · 智能与计算学部</em>
+    </div>
+
+    <div class="cover-main">
+      <div class="cover-kicker">求 职 自 我 介 绍</div>
+      <h1>后端工程 <u>×</u> AI 应用</h1>
+      <div class="sub">研究方向：<b>声纹鉴伪与说话人识别</b>　｜　求职方向：<b>Java 后端 / AI 应用开发</b></div>
+      <div class="cover-line"></div>
+    </div>
+
+    <div class="cover-card">
+      <div class="ch">基 本 信 息</div>
+      <dl>
+        <div class="row"><dt>姓　名</dt><dd>周以群　<strong>2002.10</strong></dd></div>
+        <div class="row"><dt>学　历</dt><dd>天津大学 <strong>硕士（推免）</strong></dd></div>
+        <div class="row"><dt>专　业</dt><dd>电子信息（计算机技术）</dd></div>
+        <div class="row"><dt>本　科</dt><dd>计算机科学与技术　<strong>GPA 3.68/4.0</strong></dd></div>
+        <div class="row"><dt>电　话</dt><dd>15607946943</dd></div>
+        <div class="row"><dt>邮　箱</dt><dd>zhou_123@tju.edu.cn</dd></div>
+      </dl>
+    </div>
+
+    <div class="cover-foot">
+      <div class="who">周以群<em>ZHOU YIQUN</em></div>
+      <div class="meta">
+        汇报内容：教育背景 / 科研成果 / 工程实践 / 技能体系<br>
+        <b>2026 年 09 月</b>
+      </div>
+    </div>
+
+    <div class="bar-bot"><span>TIANJIN UNIVERSITY　·　实事求是　·　个人情况汇报</span></div>
+  </section>
+
+  <!-- ───────────── 02 基本情况 ───────────── -->
+  <section class="slide p2">
+    <div class="hd">
+      <div class="hd-row">
+        <div class="hd-title"><span class="bar"></span><h2>基本情况<small>PROFILE</small></h2></div>
+        <div class="hd-num"><b>02</b>／ 06</div>
+      </div>
+      <div class="rule"></div>
+    </div>
+
+    <div class="bd">
+      <div class="kpis" style="grid-template-columns:repeat(4,1fr);margin-bottom:22px">
+        <div class="kpi"><div class="v">3.68<em>/4.0</em></div><div class="l">本科 GPA · 计算机科学与技术</div></div>
+        <div class="kpi"><div class="v">推免</div><div class="l">硕士 · 电子信息（计算机技术）</div></div>
+        <div class="kpi hot"><div class="v">CCF-B</div><div class="l">第一作者 · Interspeech 2026</div></div>
+        <div class="kpi"><div class="v">2<em>段</em></div><div class="l">联想 / 比特大陆 实习经历</div></div>
+      </div>
+
+      <div class="grid2" style="flex:1;height:auto;gap:22px">
+        <div class="card mist" style="display:flex;flex-direction:column">
+          <div class="card-h"><h3>教育背景</h3><span class="tag line">2020 - 2027</span></div>
+          <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+          <ul class="tl" style="margin-top:6px">
+            <li style="padding-bottom:50px">
+              <div class="yr">2020.09</div><div class="dot"></div>
+              <div class="cx"><h4>天津大学 · 本科</h4><p style="margin-top:8px">计算机科学与技术，GPA <b>3.68 / 4.0</b>，推免攻读硕士研究生</p></div>
+            </li>
+            <li>
+              <div class="yr">2024.09</div><div class="dot"></div>
+              <div class="cx"><h4>天津大学 · 硕士（推免）</h4><p style="margin-top:8px">电子信息（计算机技术），预计 2027.06 毕业；研究方向：<b>声纹鉴伪、说话人识别</b></p></div>
+            </li>
+          </ul>
+          <div style="margin-top:36px;border-top:1px dashed var(--line);padding-top:22px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <span style="font-size:15px;color:var(--muted);letter-spacing:1px;flex:none">研究关键词</span>
+            <span style="background:var(--paper);border:1px solid var(--navy);color:var(--navy);font-size:15px;padding:6px 16px">声纹鉴伪</span>
+            <span style="background:var(--paper);border:1px solid var(--navy);color:var(--navy);font-size:15px;padding:6px 16px">说话人识别</span>
+            <span style="background:var(--paper);border:1px solid var(--navy);color:var(--navy);font-size:15px;padding:6px 16px">语音反欺骗</span>
+            <span style="background:var(--paper);border:1px solid var(--navy);color:var(--navy);font-size:15px;padding:6px 16px">双粒度特征融合</span>
+          </div>
+          </div>
+        </div>
+
+        <div class="card" style="display:flex;flex-direction:column">
+          <div class="card-h"><h3>学生工作与综合素养</h3><span class="tag">CAMPUS</span></div>
+          <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+          <ul class="pts" style="margin-top:8px">
+            <li><b>天津大学青年文化促进会 · 社团主席（2022 - 2023）：</b>统筹社团日常运营与校级文化活动的策划组织，协调多部门协作。</li>
+            <li><b>未来技术学院 计算机技术 1 班 · 班长（2024 - 2025）：</b>负责班级事务组织、活动策划与师生沟通协调。</li>
+          </ul>
+          <div class="kv" style="margin-top:18px">
+            <div class="r"><div class="k">出生年月</div><div class="v">2002.10</div></div>
+            <div class="r"><div class="k">政治面貌</div><div class="v">共青团员</div></div>
+            <div class="r"><div class="k">籍　　贯</div><div class="v">江西省南昌市</div></div>
+          </div>
+          <div style="margin-top:22px;background:var(--mist);border-left:4px solid var(--navy);padding:16px 20px;font-size:17.5px;line-height:1.6">
+            <b style="color:var(--navy)">求职方向：</b>Java 后端 / AI 应用开发，期望在后端工程与大模型应用的结合方向长期深耕。
+          </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sumband" style="margin-top:22px">
+        <span class="t">小 结</span>
+        <p><b>学术 + 工程</b>双线并进：科研上有第一作者 CCF-B 论文，工程上有联想、比特大陆两段实习，以及多个独立完成的高并发 / AI 项目。</p>
+      </div>
+    </div>
+
+    <div class="ft">
+      <span>天津大学 · 周以群 · 求职自我介绍</span>
+      <span class="dots"><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i></span>
+      <span>02 / 06</span>
+    </div>
+  </section>
+
+  <!-- ───────────── 03 科研经历 ───────────── -->
+  <section class="slide">
+    <div class="hd">
+      <div class="hd-row">
+        <div class="hd-title"><span class="bar"></span><h2>科研成果<small>RESEARCH</small></h2></div>
+        <div class="hd-num"><b>03</b>／ 06</div>
+      </div>
+      <div class="rule"></div>
+    </div>
+
+    <div class="bd">
+      <div style="border:1px solid var(--line);border-left:5px solid var(--navy);padding:18px 24px;margin-bottom:22px">
+        <div style="font-size:23px;font-weight:700;color:var(--navy);line-height:1.45;letter-spacing:.5px">
+          BiSASV: Bidirectional Feature Modulation with Dual-Granularity Fusion for Spoofing-Robust ASV
+        </div>
+        <div style="margin-top:12px;display:flex;gap:10px">
+          <span style="background:var(--navy);color:#fff;font-size:14.5px;padding:4px 12px;letter-spacing:1px">第一作者</span>
+          <span style="background:var(--mist);color:var(--navy);border:1px solid var(--line);font-size:14.5px;padding:4px 12px;letter-spacing:1px">已接收 · Interspeech 2026</span>
+          <span style="background:var(--accent);color:#fff;font-size:14.5px;padding:4px 12px;letter-spacing:1px">CCF-B · 语音领域顶级会议</span>
+        </div>
+      </div>
+
+      <div style="flex:1;display:flex;gap:20px;min-height:0">
+        <!-- 左栏：Figure 1 大图（图注紧贴图下） -->
+        <div class="card" style="flex:1.5;display:flex;flex-direction:column;min-width:0">
+          <div class="card-h"><h3>系统总体结构</h3><span class="tag line">论文 Figure 1</span></div>
+          <div style="flex:1;min-height:0;margin-top:8px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid var(--line);padding:10px">
+            <img src="assets/fig1_architecture.png" alt="BiSASV 总体结构图" style="max-width:100%;max-height:100%;object-fit:contain">
+          </div>
+          <div style="margin-top:8px;text-align:center;font-size:14px;color:var(--muted);letter-spacing:.3px">
+            图 1　(a) ATMM-SAGA：CM 分数单向门控；(b) BiSASV：双向特征调制与双粒度融合
+          </div>
+        </div>
+
+        <!-- 中栏：DET 曲线大图（图注紧贴图下，与左栏同高对齐） -->
+        <div class="card" style="flex:1.1;display:flex;flex-direction:column;min-width:0">
+          <div class="card-h"><h3>性能对比 · DET 曲线</h3><span class="tag">对数坐标</span></div>
+          <div style="flex:1;min-height:0;margin-top:8px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid var(--line);padding:10px">
+            <img src="assets/fig_det_curve.png" alt="DET 曲线对比" style="max-width:100%;max-height:100%;object-fit:contain">
+          </div>
+          <div style="margin-top:8px;text-align:center;font-size:14px;color:var(--muted);letter-spacing:.3px">
+            图 2　Dev / Eval 集上与 AASIST 的 DET 曲线对比（FAR - FRR，对数坐标）
+          </div>
+        </div>
+
+        <!-- 右栏：方法核心 + 主结果（方法对比） + 消融 -->
+        <div style="flex:1;display:flex;flex-direction:column;gap:8px;min-width:0">
+          <div class="card" style="flex:1;display:flex;flex-direction:column;min-width:0;padding:10px 12px">
+            <div class="card-h" style="margin-bottom:0"><h3 style="font-size:16px">方法核心</h3><span class="tag line">BiSASV</span></div>
+            <ul class="pts sm" style="margin-top:5px;font-size:12.5px;line-height:1.35">
+              <li style="margin-bottom:3px"><b>双向 FiLM 调制：</b>ASV ↔ CM 相互门控，信息流由单向变双向。</li>
+              <li style="margin-bottom:3px"><b>双粒度融合：</b>细粒度逐帧 + 粗粒度全局相似度；去粗粒度 EER 0.73% → 1.14%。</li>
+              <li style="margin-bottom:0"><b>问题背景：</b>TTS / VC 攻击可骗过 ASV；分数级融合两分支互不感知。</li>
+            </ul>
+          </div>
+
+          <div class="card" style="flex:1.3;display:flex;flex-direction:column;min-width:0;padding:10px 12px">
+            <div class="card-h" style="margin-bottom:0"><h3 style="font-size:16px">主结果 · 方法对比</h3><span class="tag">ASVspoof 2019 LA</span></div>
+            <table class="dtab" style="margin-top:5px">
+              <tr><th>系统</th><th class="num">EER(%)</th><th class="num">a-DCF</th></tr>
+              <tr><td>ATMM-SAGA（基线）</td><td class="num">2.18</td><td class="num">0.0480</td></tr>
+              <tr><td>SASV-EEND</td><td class="num">1.19</td><td class="num">—</td></tr>
+              <tr><td>Ensemble</td><td class="num">1.00</td><td class="num">—</td></tr>
+              <tr class="hl"><td>BiSASV</td><td class="num">0.73</td><td class="num">0.0153</td></tr>
+            </table>
+            <div class="dtab-note" style="margin-top:auto"><b>BiSASV 取得最低 EER（0.73%）与最低 a-DCF（0.0153），优于全部对比方法。</b></div>
+          </div>
+
+          <div class="card" style="flex:1.15;display:flex;flex-direction:column;min-width:0;padding:10px 12px">
+            <div class="card-h" style="margin-bottom:0"><h3 style="font-size:16px">消融实验</h3><span class="tag">同一评测集</span></div>
+            <table class="dtab" style="margin-top:5px">
+              <tr><th>配置</th><th class="num">EER(%)</th></tr>
+              <tr class="hl"><td>完整模型</td><td class="num">0.73</td></tr>
+              <tr><td>去 ASV→CM 条件化</td><td class="num">1.33</td></tr>
+              <tr><td>打乱说话人上下文</td><td class="num">1.49</td></tr>
+              <tr><td>去粗粒度模块</td><td class="num">1.14</td></tr>
+            </table>
+            <div class="dtab-note" style="margin-top:auto">增益来自正确说话人上下文，非额外参数。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ft">
+      <span>天津大学 · 周以群 · 求职自我介绍</span>
+      <span class="dots"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span>
+      <span>03 / 06</span>
+    </div>
+  </section>
+
+  <!-- ───────────── 04 工程实践 · 后端 ───────────── -->
+  <section class="slide">
+    <div class="hd">
+      <div class="hd-row">
+        <div class="hd-title"><span class="bar"></span><h2>工程实践 · 后端方向<small>ENGINEERING</small></h2></div>
+        <div class="hd-num"><b>04</b>／ 06</div>
+      </div>
+      <div class="rule"></div>
+    </div>
+
+    <div class="bd">
+      <div class="grid2" style="flex:1;height:auto">
+        <div class="card" style="border-left-color:var(--navy);display:flex;flex-direction:column">
+          <div class="card-h">
+            <h3>北京比特大陆 · 后端开发实习</h3>
+            <span class="tag">2026.04 - 2026.07</span>
+          </div>
+          <div style="font-size:15px;color:var(--muted);margin-bottom:12px;letter-spacing:.5px">
+            技术栈：Spring Boot · MySQL · MongoDB · Redis · Rancher(K8s) · GitLab CI/CD
+          </div>
+          <ul class="pts">
+            <li><b>消息持久化：</b>WebSocket 消息经 Redis Stream 异步落 MongoDB，靠唯一约束与状态机做写入幂等。</li>
+            <li><b>附件处理：</b>元数据先落、附件异步分片上传 OSS 并按 SHA-256 去重，大附件不阻塞消息可见（延迟差 &lt; 13ms）。</li>
+            <li><b>渠道消息鉴权：</b>短期 JWT 换长期凭证的两级鉴权，响应头滑动续期；并发 401 合并为单次重签，服务端只存凭证哈希。</li>
+            <li><b>OEM 多租户系统：</b>基于 RBAC 实现普通用户、企业成员、企业管理员、平台超管四级角色与数据隔离，完成超管全局面板与企业控制台。</li>
+          </ul>
+          <div style="margin-top:auto">
+            <div style="font-size:14.5px;font-weight:700;color:var(--navy);letter-spacing:1px;margin-bottom:8px">消息持久化链路</div>
+            <div class="chain">
+              <div class="step"><div class="t">WebSocket</div><div class="d">消息接入</div></div>
+              <div class="step hi"><div class="t">Redis Stream</div><div class="d">异步缓冲</div></div>
+              <div class="step"><div class="t">MongoDB</div><div class="d">幂等落库</div></div>
+              <div class="step"><div class="t">OSS</div><div class="d">附件分片 · SHA-256 去重</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="display:flex;flex-direction:column">
+          <div class="card-h">
+            <h3>SaaS 短链接管理系统</h3>
+            <span class="tag">2026.01 - 2026.03</span>
+          </div>
+          <div style="font-size:15px;color:var(--muted);margin-bottom:12px;letter-spacing:.5px">
+            技术栈：Spring Boot 3 · Spring Cloud · ShardingSphere · RocketMQ · Redis
+          </div>
+          <div class="kpis" style="grid-template-columns:repeat(3,1fr);margin-bottom:14px">
+            <div class="kpi" style="padding:12px"><div class="v" style="font-size:30px">5<em>k/s</em></div><div class="l" style="font-size:13px">创建接口 TPS</div></div>
+            <div class="kpi" style="padding:12px"><div class="v" style="font-size:30px">56<em>k/s</em></div><div class="l" style="font-size:13px">跳转峰值 QPS</div></div>
+            <div class="kpi" style="padding:12px"><div class="v" style="font-size:30px">↓60<em>%</em></div><div class="l" style="font-size:13px">核心链路 RT</div></div>
+          </div>
+          <ul class="pts">
+            <li>MurmurHash + Base62 生成 6 位短码，UUID 盐值 + 冲突重试保证唯一，布隆过滤器配合数据库唯一索引降低校验开销。</li>
+            <li>多级防护解决缓存穿透 / 击穿 / 雪崩：布隆过滤器 + Redis 缓存 + 空值过期 + 分布式锁，命中场景零查库。</li>
+            <li>ShardingSphere 分库分表，缺失分片键时经辅助路由表二次寻址，避免广播查询。</li>
+            <li>RocketMQ 异步削峰落库，setNx 保障消费幂等，网关统一鉴权 + Lua 限流 + Sentinel 降级。</li>
+          </ul>
+          <div style="margin-top:auto">
+            <div style="font-size:14.5px;font-weight:700;color:var(--navy);letter-spacing:1px;margin-bottom:8px">短码创建链路</div>
+            <div class="chain">
+              <div class="step"><div class="t">参数校验</div><div class="d">长链合法性检查</div></div>
+              <div class="step hi"><div class="t">MurmurHash + Base62</div><div class="d">6 位短码生成</div></div>
+              <div class="step"><div class="t">唯一索引</div><div class="d">冲突重试保证唯一</div></div>
+              <div class="step"><div class="t">布隆过滤器</div><div class="d">登记新短码</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:22px;font-size:15px;font-weight:700;color:var(--navy);letter-spacing:2px">SaaS 短链接 · 高并发跳转核心链路（峰值 56k QPS）</div>
+      <div class="chain" style="margin-top:12px">
+        <div class="step hi"><div class="t">网关</div><div class="d">统一鉴权 · Lua 限流</div></div>
+        <div class="step"><div class="t">布隆过滤器</div><div class="d">拦截无效短码</div></div>
+        <div class="step hi"><div class="t">Redis 缓存</div><div class="d">命中零查库 · 空值过期</div></div>
+        <div class="step"><div class="t">分布式锁</div><div class="d">防击穿重建</div></div>
+        <div class="step"><div class="t">ShardingSphere</div><div class="d">分片路由 · 二次寻址</div></div>
+        <div class="step"><div class="t">RocketMQ</div><div class="d">异步削峰落库</div></div>
+      </div>
+    </div>
+
+    <div class="ft">
+      <span>天津大学 · 周以群 · 求职自我介绍</span>
+      <span class="dots"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span>
+      <span>04 / 06</span>
+    </div>
+  </section>
+
+  <!-- ───────────── 05 工程实践 · AI ───────────── -->
+  <section class="slide">
+    <div class="hd">
+      <div class="hd-row">
+        <div class="hd-title"><span class="bar"></span><h2>工程实践 · AI 方向<small>AI ENGINEERING</small></h2></div>
+        <div class="hd-num"><b>05</b>／ 06</div>
+      </div>
+      <div class="rule"></div>
+    </div>
+
+    <div class="bd">
+      <div class="kpis" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">
+        <div class="kpi hot"><div class="v">↓28<em>%</em></div><div class="l">AgentLoop 单轮 token 消耗</div></div>
+        <div class="kpi"><div class="v">4<em>段</em></div><div class="l">会话上下文分层拆分</div></div>
+        <div class="kpi"><div class="v">2<em>路</em></div><div class="l">向量 + BM25 混合召回</div></div>
+        <div class="kpi"><div class="v">4<em>角色</em></div><div class="l">多智能体流水线协同</div></div>
+      </div>
+
+      <div class="grid2" style="height:auto;gap:22px">
+        <div class="card">
+          <div class="card-h">
+            <h3>联想创新科技 · AI 应用开发实习</h3>
+            <span class="tag">2026.01 - 2026.04</span>
+          </div>
+          <div style="font-size:15px;color:var(--muted);margin-bottom:12px;letter-spacing:.5px">
+            ThinkBot 多用户 AI Agent 平台 · 基于 nanobot 二次开发 · 多渠道接入
+          </div>
+          <ul class="pts sm">
+            <li><b>AgentLoop 上下文优化：</b>会话拆分为固定前缀、会话摘要、近期对话与当前输入四段，固定前缀命中 Prompt 缓存，单轮 token 消耗降约 <strong>28%</strong>。</li>
+            <li><b>Tool Result 外置存储：</b>大体量工具输出落盘为 artifact 文件，上下文只保留结构化引用，模型按需回读。</li>
+            <li><b>多用户 Workspace 隔离：</b>请求入口解析稳定用户身份，按用户建立独立 workspace，Memory / Skills 分目录存放，修复子 Agent 身份透传缺失导致的跨用户串扰。</li>
+          </ul>
+        </div>
+
+        <div class="card mist">
+          <div class="card-h"><h3>可溯源科研智能体 · 独立项目</h3><span class="tag line">LangGraph</span></div>
+          <div style="font-size:15px;color:var(--muted);margin-bottom:12px;letter-spacing:.5px">
+            面向文献调研与知识库 RAG · 经 MCP 接入学术源 · 结论可溯源
+          </div>
+          <ul class="pts sm">
+            <li><b>多智能体流水线：</b>Planner → Researcher → Critic → Judge 四角色协同，Send API 并发检索，reducer 汇聚证据避免写冲突。</li>
+            <li><b>质量与稳定：</b>红队评审 + 条件路由触发补检索，LLM 熔断与 MCP 动态扩展技能，产出带引用与置信度的结构化报告。</li>
+            <li><b>用户级向量记忆：</b>FAISS + SQLite 按用户分库分索引，语义召回失败时降级为关键词匹配。</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="arch-banner" style="margin-top:20px">可溯源科研智能体 · 执行架构（LangGraph 多智能体流水线）</div>
+      <div class="arch" style="flex:1;display:flex;flex-direction:column;justify-content:center">
+        <div class="a-lane">
+          <div class="a-node"><div class="t">Planner</div><div class="d">任务分解与规划</div></div>
+          <div class="a-arr"></div>
+          <div class="a-node solid"><div class="t">Researcher ×N</div><div class="d">Send API 并发检索学术源</div></div>
+          <div class="a-arr"></div>
+          <div class="a-node"><div class="t">证据汇聚</div><div class="d">reducer 合并 · 防写冲突</div></div>
+          <div class="a-arr"></div>
+          <div class="a-node"><div class="t">Critic</div><div class="d">红队评审 · 质量把关</div></div>
+          <div class="a-arr"></div>
+          <div class="a-node solid"><div class="t">Judge</div><div class="d">裁决 · 置信度评估</div></div>
+          <div class="a-arr"></div>
+          <div class="a-node"><div class="t">结构化报告</div><div class="d">引用 + 置信度</div></div>
+        </div>
+        <div class="a-divider"><span>检 索 增 强 层</span><i></i></div>
+        <div class="a-lane">
+          <div class="a-group">
+            <span class="gl">双路召回</span>
+            <div class="a-node"><div class="t">向量召回</div><div class="d">FAISS 语义检索</div></div>
+            <div class="a-node"><div class="t">BM25 召回</div><div class="d">关键词精确匹配</div></div>
+          </div>
+          <div class="a-arr"></div>
+          <div class="a-node"><div class="t">RRF 融合</div><div class="d">多路分数合并</div></div>
+          <div class="a-arr"></div>
+          <div class="a-node"><div class="t">Cross-Encoder 重排</div><div class="d">精排出 Top-K 证据</div></div>
+          <div class="a-arr"></div>
+          <div class="a-node solid"><div class="t">Context 组装</div><div class="d">供 Researcher 按需调用</div></div>
+        </div>
+        <div class="a-back">红队评审不通过 → <b>条件路由触发补检索</b>（retrieve-reason 循环，以结论压缩控制循环风险）</div>
+      </div>
+    </div>
+
+    <div class="ft">
+      <span>天津大学 · 周以群 · 求职自我介绍</span>
+      <span class="dots"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span>
+      <span>05 / 06</span>
+    </div>
+  </section>
+
+  <!-- ───────────── 06 技能体系与致谢 ───────────── -->
+  <section class="slide">
+    <div class="hd">
+      <div class="hd-row">
+        <div class="hd-title"><span class="bar"></span><h2>技能体系与致谢<small>SKILLS &amp; THANKS</small></h2></div>
+        <div class="hd-num"><b>06</b>／ 06</div>
+      </div>
+      <div class="rule"></div>
+    </div>
+
+    <div class="bd">
+      <div class="grid3" style="height:auto;gap:22px">
+        <div class="card">
+          <div class="card-h"><h3>后端开发</h3><span class="tag line">JAVA</span></div>
+          <ul class="pts sm">
+            <li><b>语言：</b>Java、Python，理解数据结构、计算机网络与 JVM 原理。</li>
+            <li><b>框架：</b>Spring Boot、Spring Cloud、MyBatis，熟悉微服务拆分与治理。</li>
+            <li><b>工程化：</b>GitLab CI/CD、Rancher（K8s）、Sentinel 限流降级。</li>
+          </ul>
+        </div>
+
+        <div class="card mist">
+          <div class="card-h"><h3>数据库与中间件</h3><span class="tag line">STORAGE</span></div>
+          <ul class="pts sm">
+            <li><b>存储：</b>MySQL（索引与锁机制、分库分表）、MongoDB、Redis。</li>
+            <li><b>消息：</b>RocketMQ 异步削峰、事务消息、消费幂等。</li>
+            <li><b>高并发：</b>布隆过滤器、分布式锁、多级缓存防护体系。</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><h3>AI 应用开发</h3><span class="tag line">LLM</span></div>
+          <ul class="pts sm">
+            <li><b>框架：</b>LangChain、LangGraph、MCP 协议接入。</li>
+            <li><b>技术：</b>RAG、Agent、Multi-Agent 编排与调试。</li>
+            <li><b>优化：</b>FAISS 向量检索、Prompt 缓存、上下文工程。</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="kv" style="margin-top:22px">
+        <div class="r">
+          <div class="k">求职意向</div>
+          <div class="v">Java 后端 / AI 应用开发 —— 期望在后端工程与大模型应用的结合方向长期深耕，<b>2027 年 6 月</b>硕士毕业到岗。</div>
+        </div>
+      </div>
+
+      <div class="thanks">
+        <div class="big">恳请各位老师批评指正</div>
+        <div class="en">THANK YOU FOR YOUR ATTENTION</div>
+        <div class="motto">实 事 求 是</div>
+      </div>
+    </div>
+
+    <div class="ft">
+      <span>天津大学 · 周以群 · 求职自我介绍</span>
+      <span class="dots"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span>
+      <span>06 / 06</span>
+    </div>
+  </section>
+
+</div>
+
+<div class="hint">← → 翻页 ｜ F 全屏</div>
+
+<script>
+(function(){
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  let cur = 0;
+  function go(n){
+    cur = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s,i)=> s.classList.toggle('active', i === cur));
+  }
+  function fit(){
+    const s = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+    document.getElementById('stage').style.setProperty('--s', s);
+  }
+  window.addEventListener('resize', fit);
+  document.addEventListener('keydown', e=>{
+    if(e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' '){ e.preventDefault(); go(cur+1); }
+    if(e.key === 'ArrowLeft'  || e.key === 'ArrowUp'){ e.preventDefault(); go(cur-1); }
+    if(e.key === 'Home'){ go(0); }
+    if(e.key === 'f' || e.key === 'F'){
+      if(!document.fullscreenElement){ document.documentElement.requestFullscreen(); }
+      else { document.exitFullscreen(); }
+    }
+  });
+  document.getElementById('stage').addEventListener('click', e=>{
+    go(cur + (e.clientX > window.innerWidth/2 ? 1 : -1));
+  });
+  fit(); go(0);
+})();
+</script>
+</body>
+</html>
