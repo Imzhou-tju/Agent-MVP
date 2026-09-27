@@ -56,7 +56,7 @@ flowchart TD
 
     %% 输出层
     subgraph LayerOutput[六、输出层]
-        REPORT[科研级溯源报告<br>Compiler 外键校验与角标渲染]
+        REPORT[证据溯源报告<br>Compiler 外键校验与角标渲染]
         TERMINAL[交互终端与监控看板]
     end
 
