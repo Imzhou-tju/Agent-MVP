@@ -879,6 +879,7 @@ class PlanValidator:
         issues.extend(self._check_coverage(dag, plan))
 
         # 3. Comparison / Synthesis 证据祖先（INSUFFICIENT_EVIDENCE / PREMATURE_SYNTHESIS）
+        issues.extend(self._check_io_contract(dag))
         issues.extend(self._check_evidence_dependency(dag))
 
         # 4. 明显重复任务（REDUNDANT_TASK）
@@ -932,6 +933,29 @@ class PlanValidator:
                     "dependencies": [],
                 },
             ))
+        return issues
+
+    
+    def _check_io_contract(self, dag: TaskDAG) -> list[PlanIssue]:
+        issues = []
+        for task in dag.tasks.values():
+            tt = str(task.task_type).upper()
+            if tt in _EVIDENCE_DEPENDENT_TYPES: # SYNTHESIS, COMPARISON
+                has_provider = False
+                for dep_id in task.dependencies:
+                    if dep_id in dag.tasks:
+                        dep_tt = str(dag.tasks[dep_id].task_type).upper()
+                        if dep_tt in _EVIDENCE_PROVIDER_TYPES:
+                            has_provider = True
+                            break
+                if not has_provider:
+                    issues.append(PlanIssue(
+                        issue_type=ISSUE_INSUFFICIENT_EVIDENCE,
+                        description=f"节点 {task.task_id} ({tt}) 必须直接依赖至少一个提供证据的节点 (如 FACT, MECHANISM)",
+                        severity="HIGH",
+                        target_id=task.task_id,
+                        recommended_action="add_task"
+                    ))
         return issues
 
     def _check_evidence_dependency(self, dag: TaskDAG) -> list[PlanIssue]:
@@ -1040,7 +1064,7 @@ class PlanGate:
                  validator: PlanValidator | None = None):
         self._sop = sop
         self._validator = validator or PlanValidator(sop=sop)
-        self._critic = critic
+        self._critic = critic if critic is not None else PlanGENVerificationCritic()
 
     def run(self, dag: TaskDAG, plan: ResearchPlan, query: str = "") -> GateResult:
         result = GateResult()
@@ -1114,3 +1138,77 @@ def _dedupe_issues(issues: list[PlanIssue]) -> list[PlanIssue]:
         seen.add(k)
         out.append(i)
     return out
+
+
+class PlanGENVerificationCritic(SemanticPlanCritic):
+    """
+    基于 PlanGEN 思想的 Plan Gate V2 验证器:
+    1. Constraint Agent: 从 query 提取专属 Checklist
+    2. Verification Agent: 模拟空跑 DAG 节点能否回答 Checklist
+    """
+    def critique(self, query: str, plan: ResearchPlan) -> list[PlanIssue]:
+        if self._llm is None or not query:
+            return []
+            
+        import json
+        # Phase 1: Constraint Agent (提取 Instance-Specific Checklist)
+        constraint_prompt = f"""你是一个 Constraint Agent。
+请从以下用户的核心研究问题中，提取出必须被任务计划覆盖的关键维度/条件（Checklist）。
+仅输出 JSON 格式的列表，如 ["条件1", "条件2"]。
+User Query: {query}
+"""
+        try:
+            raw_checklist = self._call(self._llm, [("system", constraint_prompt)])
+            checklist_text = raw_checklist.content.strip()
+            if checklist_text.startswith('```json'):
+                checklist_text = checklist_text[7:-3]
+            checklist = json.loads(checklist_text)
+            if not isinstance(checklist, list): checklist = []
+        except Exception:
+            checklist = []
+            
+        if not checklist:
+            return super().critique(query, plan) # 退化到旧版
+
+        # Phase 2: Verification Agent (Simulated Rollout)
+        dag_context = ""
+        for t in plan.tasks:
+            dag_context += f"Task [{t.task_id}]({t.task_type}): {t.question}\n"
+            
+        checklist_str = chr(10).join(f"- {c}" for c in checklist)
+        verify_prompt = f"""你是一个 Verification Agent。
+当前的 DAG 计划包含以下任务：
+{dag_context}
+
+请假定这些任务均被完美执行并获取了信息。汇总这些信息能否完全解答以下 Checklist 中的每一项？
+Checklist:
+{checklist_str}
+
+如果你发现任何一项在 DAG 中找不到对应的任务支撑，请按以下 JSON 格式报告 Issue：
+[{{
+    "issue_type": "SCOPE_MISMATCH",
+    "description": "指出遗漏的具体 Checklist 项",
+    "severity": "MEDIUM",
+    "recommended_action": "add_task"
+}}]
+如果完美覆盖，返回空数组 []。
+"""
+        try:
+            raw_issues = self._call(self._llm, [("system", verify_prompt)])
+            resp_text = raw_issues.content.strip()
+            if resp_text.startswith('```json'):
+                resp_text = resp_text[7:-3]
+            issues_json = json.loads(resp_text)
+            issues = []
+            for i in issues_json:
+                issues.append(PlanIssue(
+                    issue_type=i.get("issue_type", "SCOPE_MISMATCH"),
+                    description=i.get("description", "Semantic coverage missing"),
+                    severity=i.get("severity", "MEDIUM"),
+                    target_id="",
+                    recommended_action=i.get("recommended_action", "add_task")
+                ))
+            return issues
+        except Exception:
+            return super().critique(query, plan)
+
