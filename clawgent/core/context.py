@@ -2,12 +2,23 @@ from typing import Annotated, TypedDict
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage
 from langgraph.graph.message import add_messages
 
-class AgentState(TypedDict):
+from typing import Any
+from .entity_ledger import EntityLedger
+
+class AgentState(TypedDict, total=False):
     # 存储对话历史。
     messages: Annotated[list[BaseMessage], add_messages]
     
-    # 摘要压缩
+    # 对话摘要（向后兼容保留）
     summary: str
+
+    # 实体白板（Entity Ledger，结构化长期科研状态）
+    entity_ledger: dict[str, Any]
+
+def get_entity_ledger_from_state(state: dict[str, Any] | AgentState) -> EntityLedger:
+    """从运行时状态安全提取 EntityLedger 对象。若不存在则返回空白板。"""
+    raw = state.get("entity_ledger") if isinstance(state, dict) else None
+    return EntityLedger.from_dict(raw)
 
 def trim_context_messages(messages: list[BaseMessage], trigger_turns: int = 8, keep_turns: int = 4) -> tuple[list[BaseMessage], list[BaseMessage]]:
     # 按照完整用户回合来裁剪上下文：即 一个会从从HumanMessage开始，直到下一个HumanMessage结束，会把AIMessage、tool_calls、ToolMessage一并保留

@@ -3,7 +3,8 @@ from langchain_core.tools import BaseTool
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_core.messages import HumanMessage, RemoveMessage, SystemMessage
-from .context import AgentState, trim_context_messages
+from .context import AgentState, trim_context_messages, get_entity_ledger_from_state
+from .entity_ledger import update_entity_ledger, EntityLedger
 from .provider import get_provider
 from .tools.builtins import BUILTIN_TOOLS
 from .logger import audit_logger
@@ -11,8 +12,14 @@ from .config import MEMORY_DIR
 from .skill_loader import load_dynamic_skills
 from langchain_core.runnables import RunnableConfig
 import os
-from prompt_toolkit import print_formatted_text
-from prompt_toolkit.formatted_text import ANSI
+try:
+    from prompt_toolkit import print_formatted_text
+    from prompt_toolkit.formatted_text import ANSI
+except ImportError:
+    def print_formatted_text(x):
+        print(str(x))
+    def ANSI(x):
+        return x
 
 def create_agent_app(
     provider_name: str = "openai",
@@ -66,12 +73,24 @@ def create_agent_app(
                 )
 
         current_summary = state.get("summary", "")
+        current_ledger = get_entity_ledger_from_state(state)
         final_msgs, discarded_msgs = trim_context_messages(raw_messages, trigger_turns=40, keep_turns=10)
         state_updates = {}
 
         if discarded_msgs:
             import sys
-            print_formatted_text(ANSI("\033[K \033[38;5;141m ● 正在更新上下文记忆... \033[0m"))
+            print_formatted_text(ANSI("\033[K \033[38;5;141m ● 正在更新实体白板与上下文记忆... \033[0m"))
+
+            # 1. 结构化白板更新（Entity Ledger）
+            active_ledger = update_entity_ledger(
+                current_ledger=current_ledger,
+                discarded_msgs=discarded_msgs,
+                llm=llm,
+                current_turn=len(raw_messages) // 2
+            )
+            state_updates["entity_ledger"] = active_ledger.to_dict()
+
+            # 2. 传统 summary 逻辑（保留兼容）
             discarded_text = "\n".join([f"{m.type}: {m.content}" for m in discarded_msgs if m.content])
         
             summary_prompt = (
@@ -85,8 +104,11 @@ def create_agent_app(
                 )
         
             # 这里可以用便宜模型
-            new_summary_response = llm.invoke([HumanMessage(content=summary_prompt)], config={"callbacks":[]})
-            active_summary = new_summary_response.content
+            try:
+                new_summary_response = llm.invoke([HumanMessage(content=summary_prompt)], config={"callbacks":[]})
+                active_summary = new_summary_response.content
+            except Exception:
+                active_summary = current_summary
 
             # 更新摘要
             state_updates["summary"] = active_summary
@@ -96,6 +118,7 @@ def create_agent_app(
             state_updates["messages"] = delete_cmds
         else:
             active_summary = current_summary
+            active_ledger = current_ledger
 
         # 读取用户画像
         profile_path = os.path.join(MEMORY_DIR, "user_profile.md")
@@ -127,6 +150,17 @@ def create_agent_app(
             f"{profile_content}\n"
             f"=============================\n"
         )
+
+        # 注入长期结构化科研状态（Entity Ledger）
+        if not active_ledger.is_empty():
+            sys_prompt += f"\n\n{active_ledger.to_prompt_context()}\n"
+            sys_prompt += (
+                "【科研状态与约束遵循守则】\n"
+                "1. 上方【Research State / Entity Ledger】中的 active constraints 为必须严格执行的全局硬性约束；\n"
+                "2. 当你规划、回答或调用科研工具（如 deep_research）时，必须将这些约束融入 query 或 context 参数中，严禁丢失限定范围；\n"
+                "3. resolved entities 为已确认事实与消歧实体，在提及相关对象时保持准确一致；\n"
+                "4. 若用户在当前最新消息中显式修改或撤销了约束，以用户当前最新输入为准。\n"
+            )
 
         if active_summary:
             sys_prompt += f"\n\n[近期对话上下文]\n{active_summary}\n\n(注：这是系统自动生成的近期沟通摘要，请结合它来理解用户的最新问题)"
