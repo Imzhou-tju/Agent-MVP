@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CyberClaw 核心系统架构拓扑</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            background-color: #eef2f6;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 24px 16px;
+            color: #1a202c;
+        }
+        .header-title {
+            font-size: 24px;
+            font-weight: 800;
+            color: #0f172a;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .canvas-card {
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+            padding: 24px 20px;
+            width: 100%;
+            max-width: 980px;
+            display: flex;
+            justify-content: center;
+            border: 1px solid #cbd5e1;
+        }
+        svg {
+            width: 100%;
+            height: auto;
+            max-width: 940px;
+            overflow: visible;
+        }
+        .caption {
+            margin-top: 18px;
+            font-size: 13px;
+            color: #64748b;
+            text-align: center;
+            max-width: 860px;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="canvas-card">
+        <svg viewBox="0 0 940 685" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <!-- 精准正交实心箭头：refX=7 确保尖端 100% 严丝合缝咬合目标边框 -->
+                <marker id="arrow" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                    <path d="M 1 2 L 7 5 L 1 8 z" fill="#000000" />
+                </marker>
+            </defs>
+
+            <!-- ==========================================
+                 1. 顶部：输入层 (浅蓝)
+                 ========================================== -->
+            <g id="layer-input">
+                <rect x="20" y="15" width="900" height="110" rx="14" fill="#b0e5fa" stroke="#000000" stroke-width="2" />
+                <text x="470" y="38" text-anchor="middle" font-size="16" font-weight="bold" fill="#000">输入层</text>
+
+                <!-- Heartbeat -->
+                <rect x="170" y="48" width="200" height="34" rx="17" fill="#88d8f7" stroke="#000000" stroke-width="1.8" />
+                <text x="270" y="70" text-anchor="middle" font-size="14" font-weight="bold" fill="#000">Heartbeat / 定时调度</text>
+
+                <!-- 用户输入 -->
+                <rect x="570" y="48" width="200" height="34" rx="17" fill="#88d8f7" stroke="#000000" stroke-width="1.8" />
+                <text x="670" y="70" text-anchor="middle" font-size="14" font-weight="bold" fill="#000">科研提问 / 任务输入</text>
+
+                <!-- Gateway -->
+                <rect x="385" y="86" width="170" height="32" rx="16" fill="#88d8f7" stroke="#000000" stroke-width="1.8" />
+                <text x="470" y="107" text-anchor="middle" font-size="14" font-weight="bold" fill="#000">Gateway (上下文网关)</text>
+            </g>
+
+            <!-- ==========================================
+                 2. 中左1：工具执行层 (紫色)
+                 ========================================== -->
+            <g id="layer-tools">
+                <rect x="20" y="145" width="155" height="380" rx="14" fill="#e2d6ec" stroke="#000000" stroke-width="2" />
+                <text x="97.5" y="172" text-anchor="middle" font-size="15" font-weight="bold" fill="#000">工具执行层</text>
+
+                <!-- 卡片 1: 多智能体调研图 -->
+                <g transform="translate(30, 195)">
+                    <rect width="135" height="140" rx="14" fill="#cbb5dd" stroke="#000000" stroke-width="1.6" />
+                    <text x="67.5" y="32" text-anchor="middle" font-size="14" font-weight="bold" fill="#000">多智能体调研图</text>
+                    <text x="67.5" y="52" text-anchor="middle" font-size="12" font-weight="bold" fill="#000">(Research DAG)</text>
+                    <line x1="12" y1="64" x2="123" y2="64" stroke="#000" stroke-width="1" stroke-dasharray="2 2" />
+                    <text x="67.5" y="84" text-anchor="middle" font-size="11" fill="#000">SOP拆解与派发</text>
+                    <text x="67.5" y="104" text-anchor="middle" font-size="11" fill="#000">并发Reducer防写冲突</text>
+                    <text x="67.5" y="124" text-anchor="middle" font-size="11" font-weight="bold" fill="#800">Review-Repair-Judge</text>
+                </g>
+
+                <!-- 卡片 2: RAG混合检索与扩展 -->
+                <g transform="translate(30, 355)">
+                    <rect width="135" height="140" rx="14" fill="#cbb5dd" stroke="#000000" stroke-width="1.6" />
+                    <text x="67.5" y="32" text-anchor="middle" font-size="14" font-weight="bold" fill="#000">RAG混合检索</text>
+                    <text x="67.5" y="52" text-anchor="middle" font-size="12" font-weight="bold" fill="#000">& 技能扩展</text>
+                    <line x1="12" y1="64" x2="123" y2="64" stroke="#000" stroke-width="1" stroke-dasharray="2 2" />
+                    <text x="67.5" y="84" text-anchor="middle" font-size="11" fill="#000">向量+BM25+Rerank</text>
+                    <text x="67.5" y="104" text-anchor="middle" font-size="11" fill="#000">残差多跳推理循环</text>
+                    <text x="67.5" y="124" text-anchor="middle" font-size="11" fill="#000">MCP外部学术源</text>
+                </g>
+            </g>
+
+            <!-- ==========================================
+                 3. 中左2：安全层 (棕褐)
+                 ========================================== -->
+            <g id="layer-security">
+                <rect x="195" y="145" width="145" height="380" rx="14" fill="#f2dcd0" stroke="#000000" stroke-width="2" />
+                <text x="267.5" y="172" text-anchor="middle" font-size="15" font-weight="bold" fill="#000">安全层</text>
+
+                <!-- 卡片 1: 路径越权拦截 -->
+                <g transform="translate(207, 205)">
+                    <rect width="121" height="110" rx="14" fill="#e8c0aa" stroke="#000000" stroke-width="1.6" />
+                    <text x="60.5" y="36" text-anchor="middle" font-size="14" font-weight="bold" fill="#000">路径越权拦截</text>
+                    <text x="60.5" y="62" text-anchor="middle" font-size="12" fill="#000">OFFICE_DIR</text>
+                    <text x="60.5" y="82" text-anchor="middle" font-size="12" fill="#000">物理沙盒隔离</text>
+                </g>
+
+                <!-- 卡片 2: 校验与熔断 -->
+                <g transform="translate(207, 365)">
+                    <rect width="121" height="115" rx="14" fill="#e8c0aa" stroke="#000000" stroke-width="1.6" />
+                    <text x="60.5" y="34" text-anchor="middle" font-size="13" font-weight="bold" fill="#000">PlanGate 校验</text>
+                    <text x="60.5" y="52" text-anchor="middle" font-size="13" font-weight="bold" fill="#000">& 熔断机制</text>
+                    <text x="60.5" y="76" text-anchor="middle" font-size="11" fill="#000">I/O契约强推演</text>
+                    <text x="60.5" y="96" text-anchor="middle" font-size="11" fill="#000">Circuit Breaker</text>
+                </g>
+            </g>
+
+            <!-- ==========================================
+                 4. 中间上：记忆层 (粉红)
+                 ========================================== -->
+            <g id="layer-memory">
+                <rect x="360" y="145" width="270" height="160" rx="14" fill="#fccccc" stroke="#000000" stroke-width="2" />
+                <text x="495" y="172" text-anchor="middle" font-size="15" font-weight="bold" fill="#000">记忆层</text>
+
+                <!-- 记忆大药丸 -->
+                <g transform="translate(380, 185)">
+                    <rect width="230" height="95" rx="20" fill="#faa3a3" stroke="#000000" stroke-width="1.6" />
+                    <text x="115" y="32" text-anchor="middle" font-size="14" font-weight="bold" fill="#000">上下文修剪 (LRU)</text>
+                    <text x="115" y="52" text-anchor="middle" font-size="12" fill="#000">超 40 轮修剪至 10 轮</text>
+                    <line x1="20" y1="60" x2="210" y2="60" stroke="#000" stroke-width="1" stroke-dasharray="2 2" />
+                    <text x="115" y="80" text-anchor="middle" font-size="13" font-weight="bold" fill="#600">Entity Ledger (实体账本)</text>
+                </g>
+            </g>
+
+            <!-- ==========================================
+                 5. 中间下：智能决策层 (浅黄)
+                 ========================================== -->
+            <g id="layer-decision">
+                <rect x="360" y="325" width="270" height="200" rx="14" fill="#fff2cc" stroke="#000000" stroke-width="2" />
+                <text x="495" y="352" text-anchor="middle" font-size="15" font-weight="bold" fill="#000">智能决策层</text>
+
+                <!-- 决策大药丸 -->
+                <g transform="translate(380, 365)">
+                    <rect width="230" height="140" rx="20" fill="#ffe8a3" stroke="#000000" stroke-width="1.6" />
+                    <text x="115" y="32" text-anchor="middle" font-size="15" font-weight="bold" fill="#000">Agent Loop</text>
+                    <text x="115" y="52" text-anchor="middle" font-size="13" font-weight="bold" fill="#000">LLM 推理与决策</text>
+                    <line x1="20" y1="64" x2="210" y2="64" stroke="#000" stroke-width="1" stroke-dasharray="2 2" />
+                    <text x="115" y="84" text-anchor="middle" font-size="12" fill="#000">ReAct 主循环条件路由</text>
+                    <text x="115" y="104" text-anchor="middle" font-size="12" font-weight="bold" fill="#044">证据溯源 1:N 约束中枢</text>
+                    <text x="115" y="123" text-anchor="middle" font-size="11" fill="#000">Source ➔ Evidence ➔ Claim</text>
+                </g>
+            </g>
+
+            <!-- ==========================================
+                 6. 中右：透明监控层 (浅绿)
+                 ========================================== -->
+            <g id="layer-monitor">
+                <rect x="650" y="145" width="270" height="380" rx="14" fill="#dcedd5" stroke="#000000" stroke-width="2" />
+                <text x="785" y="172" text-anchor="middle" font-size="15" font-weight="bold" fill="#000">透明监控层</text>
+
+                <!-- 4个药丸垂直分布 -->
+                <g transform="translate(675, 195)">
+                    <rect width="220" height="52" rx="26" fill="#c0dfb3" stroke="#000000" stroke-width="1.6" />
+                    <text x="110" y="25" text-anchor="middle" font-size="13" font-weight="bold" fill="#000">记忆更新</text>
+                    <text x="110" y="42" text-anchor="middle" font-size="11" fill="#141">Ledger 约束变更高信度同步</text>
+                </g>
+
+                <g transform="translate(675, 265)">
+                    <rect width="220" height="52" rx="26" fill="#c0dfb3" stroke="#000000" stroke-width="1.6" />
+                    <text x="110" y="25" text-anchor="middle" font-size="13" font-weight="bold" fill="#000">工具决策</text>
+                    <text x="110" y="42" text-anchor="middle" font-size="11" fill="#141">DAG 状态跃迁与级联重置</text>
+                </g>
+
+                <g transform="translate(675, 335)">
+                    <rect width="220" height="52" rx="26" fill="#c0dfb3" stroke="#000000" stroke-width="1.6" />
+                    <text x="110" y="25" text-anchor="middle" font-size="13" font-weight="bold" fill="#000">工具参数与埋点</text>
+                    <text x="110" y="42" text-anchor="middle" font-size="11" fill="#141">@audit_node 异步事件捕获</text>
+                </g>
+
+                <g transform="translate(675, 405)">
+                    <rect width="220" height="52" rx="26" fill="#c0dfb3" stroke="#000000" stroke-width="1.6" />
+                    <text x="110" y="25" text-anchor="middle" font-size="13" font-weight="bold" fill="#000">调用结果与审计</text>
+                    <text x="110" y="42" text-anchor="middle" font-size="11" fill="#141">Thread 级 JSONL 无锁持久化</text>
+                </g>
+            </g>
+
+            <!-- ==========================================
+                 7. 底部：输出层 (橙褐)
+                 ========================================== -->
+            <g id="layer-output">
+                <rect x="20" y="565" width="900" height="100" rx="14" fill="#f4b899" stroke="#000000" stroke-width="2" />
+                <text x="470" y="650" text-anchor="middle" font-size="16" font-weight="bold" fill="#000">输出层</text>
+
+                <!-- 聊天终端 / 报告 -->
+                <g transform="translate(180, 578)">
+                    <rect width="280" height="50" rx="25" fill="#ee9466" stroke="#000000" stroke-width="1.8" />
+                    <text x="140" y="26" text-anchor="middle" font-size="14" font-weight="bold" fill="#000">聊天终端 / 科研级溯源报告</text>
+                    <text x="140" y="42" text-anchor="middle" font-size="11" fill="#000">Compiler 渲染 [1][2] 引文角标与参考文献</text>
+                </g>
+
+                <!-- 监控终端 / Dashboard -->
+                <g transform="translate(560, 578)">
+                    <rect width="280" height="50" rx="25" fill="#ee9466" stroke="#000000" stroke-width="1.8" />
+                    <text x="140" y="26" text-anchor="middle" font-size="14" font-weight="bold" fill="#000">监控终端 (Web Dashboard)</text>
+                    <text x="140" y="42" text-anchor="middle" font-size="11" fill="#000">图状态可视化 / 耗时 / Token 开销统计</text>
+                </g>
+            </g>
+
+            <!-- ==========================================
+                 8. 纯正交折线箭头 (严格分层走廊，消除重叠与悬空)
+                 ========================================== -->
+            <g id="connectors">
+                <!-- 1. 工具执行层 -> Heartbeat (左上倒L回路) -->
+                <path d="M 70 145 L 70 65 L 170 65" fill="none" stroke="#000" stroke-width="2" marker-end="url(#arrow)" />
+
+                <!-- 2. Heartbeat -> Gateway (直角射入顶部左侧) -->
+                <path d="M 370 65 L 430 65 L 430 86" fill="none" stroke="#000" stroke-width="2" marker-end="url(#arrow)" />
+
+                <!-- 3. 用户输入 -> Gateway (直角射入顶部右侧) -->
+                <path d="M 570 65 L 510 65 L 510 86" fill="none" stroke="#000" stroke-width="2" marker-end="url(#arrow)" />
+
+                <!-- 4. Gateway -> 记忆层 (垂直向下直线扎入记忆层) -->
+                <path d="M 470 118 L 470 145" fill="none" stroke="#000" stroke-width="2" marker-end="url(#arrow)" />
+
+                <!-- 5. 记忆层 <-> 智能决策层 (垂直双向对流) -->
+                <!-- 记忆层 -> 决策层 (向下) -->
+                <path d="M 480 305 L 480 325" fill="none" stroke="#000" stroke-width="2" marker-end="url(#arrow)" />
+                <!-- 决策层 -> 记忆层 (向上) -->
+                <path d="M 510 325 L 510 305" fill="none" stroke="#000" stroke-width="2" marker-end="url(#arrow)" />
+
+                <!-- 6. 智能决策层 -> 安全层 -> 工具执行层 (横向调用链) -->
+                <!-- 决策层 (360, 435) -> 安全层右侧 (340, 435) -->
+                <path d="M 360 435 L 340 435" fill="none" stroke="#000" stroke-width="2" marker-end="url(#arrow)" />
+                <!-- 安全层左侧 (195, 265) -> 工具执行层卡片1 右侧 (165, 265) -->
+                <path d="M 195 265 L 165 265" fill="none" stroke="#000" stroke-width="2" marker-end="url(#arrow)" />
+                <!-- 安全层左侧 (195, 425) -> 工具执行层卡片2 右侧 (165, 425) -->
+                <path d="M 195 425 L 165 425" fill="none" stroke="#000" stroke-width="2" marker-end="url(#arrow)" />
+
+                <!-- 7. 工具执行层 -> 智能决策层 (结果回流回路：独享 y=538 上层水平走廊) -->
+                <path d="M 97.5 525 L 97.5 538 L 400 538 L 400 525" fill="none" stroke="#000" stroke-width="2" marker-end="url(#arrow)" />
+
+                <!-- 8. 记忆层 -> 透明监控层 (横向直扎) -->
+                <path d="M 630 222 L 650 222" fill="none" stroke="#000" stroke-width="2" marker-end="url(#arrow)" />
+
+                <!-- 9. 智能决策层 -> 透明监控层 (横向直扎) -->
+                <path d="M 630 435 L 650 435" fill="none" stroke="#000" stroke-width="2" marker-end="url(#arrow)" />
+
+                <!-- 10. 智能决策层 -> 输出层聊天终端 (独享 y=552 下层水平走廊，垂直贯穿输出层并精准咬合胶囊顶部 y=578) -->
+                <path d="M 495 525 L 495 552 L 320 552 L 320 578" fill="none" stroke="#000" stroke-width="2" marker-end="url(#arrow)" />
+
+                <!-- 11. 透明监控层 -> 输出层监控终端 (独享 y=552 下层水平走廊右段，垂直精准咬合胶囊顶部 y=578) -->
+                <path d="M 785 525 L 785 552 L 700 552 L 700 578" fill="none" stroke="#000" stroke-width="2" marker-end="url(#arrow)" />
+            </g>
+        </svg>
+    </div>
+
+</body>
+</html>
