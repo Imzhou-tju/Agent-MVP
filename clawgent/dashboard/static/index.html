@@ -77,6 +77,10 @@
   .dag-node-item.REOPENED { border-color: var(--amber); border-left-width: 4px; }
   .dag-node-item.FAILED { border-color: var(--red); border-left-width: 4px; }
   .dag-node-item.PENDING { border-color: var(--border); border-left-width: 4px; }
+  @keyframes dagFlow { from { stroke-dashoffset: 24; } to { stroke-dashoffset: 0; } }
+  .dag-edge-bg { stroke: #e2e8f0; stroke-width: 5px; stroke-linecap: round; fill: none; }
+  .dag-edge-flow { stroke: var(--accent); stroke-width: 2.2px; stroke-linecap: round; fill: none; stroke-dasharray: 6 5; animation: dagFlow 1.2s linear infinite; }
+  .dag-stage-header { position: absolute; top: 8px; font-size: 11px; font-weight: 700; color: var(--muted); background: #f1f5f9; padding: 2px 10px; border-radius: 10px; border: 1px solid #cbd5e1; }
   .dag-node-title { font-weight: 700; font-size: 13px; color: #1e293b; display: flex; justify-content: space-between; align-items: center; }
   .dag-node-sub { color: var(--muted); font-size: 11px; margin-top: 4px; }
   .dag-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
@@ -298,7 +302,7 @@ function renderDag(tasks) {
     });
   });
 
-  // 4. 生成 SVG 边 (贝塞尔曲线平滑连接)
+  // 4. 生成 SVG 边 (双层平滑贝塞尔曲线 + 动态流动虚线)
   let svgPaths = '';
   tasks.forEach(t => {
     if (t.dependencies) {
@@ -310,16 +314,27 @@ function renderDag(tasks) {
           const y1 = from.y + from.height / 2;
           const x2 = to.x;
           const y2 = to.y + to.height / 2;
-          const cx1 = x1 + (x2 - x1) * 0.5;
-          const cx2 = x2 - (x2 - x1) * 0.5;
-          svgPaths += `<path d="M ${x1} ${y1} C ${cx1} ${y1}, ${cx2} ${y2}, ${x2} ${y2}"
-                             fill="none" stroke="#94a3b8" stroke-width="2" marker-end="url(#dag-arrow)" />`;
+          const cx1 = x1 + (x2 - x1) * 0.45;
+          const cx2 = x2 - (x2 - x1) * 0.45;
+          const d = `M ${x1} ${y1} C ${cx1} ${y1}, ${cx2} ${y2}, ${x2} ${y2}`;
+          svgPaths += `
+            <path d="${d}" class="dag-edge-bg" />
+            <path d="${d}" class="dag-edge-flow" marker-end="url(#dag-arrow)" />
+          `;
         }
       });
     }
   });
 
-  // 5. 生成 HTML 节点与工具条
+  // 5. 生成列头阶段提示与 HTML 节点
+  let stageHeaders = '';
+  const stageLabels = ["阶段一：基础基石", "阶段二：并发调研", "阶段三：汇聚收敛", "阶段四：终审交付"];
+  Object.keys(columns).forEach(r => {
+    const colX = 30 + r * colWidth + 20;
+    const name = stageLabels[r] || ('阶段 ' + (Number(r) + 1));
+    stageHeaders += `<div class="dag-stage-header" style="left:${colX}px;">${name}</div>`;
+  });
+
   let html = `
     <div class="dag-toolbar">
       <div class="dag-legend">
@@ -329,15 +344,16 @@ function renderDag(tasks) {
         <span><i class="dag-legend-dot" style="background:var(--red)"></i>FAILED</span>
         <span><i class="dag-legend-dot" style="background:var(--muted)"></i>PENDING</span>
       </div>
-      <div style="font-size:12px; color:var(--muted);">节点可点击查看详情 · 自动分层有向无环图</div>
+      <div style="font-size:12px; color:var(--muted);">节点可点击查看详情 · 动画流动虚线标识数据流向</div>
     </div>
     
     <div class="dag-container">
       <div class="dag-canvas" style="width:${canvasWidth}px; height:${canvasHeight}px;">
+        ${stageHeaders}
         <svg class="dag-svg-layer" width="${canvasWidth}" height="${canvasHeight}">
           <defs>
             <marker id="dag-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-              <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#94a3b8" />
+              <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="var(--accent)" />
             </marker>
           </defs>
           ${svgPaths}

@@ -3,98 +3,448 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Research 可观测 Dashboard - 全景仿真与未完成态</title>
+<title>CyberClaw 多智能体科研可观测 Dashboard</title>
 <style>
   :root {
-    --bg: #f8fafc; --panel: #ffffff; --border: #e2e8f0; --text: #0f172a;
-    --muted: #64748b; --accent: #2563eb; --red: #ef4444; --green: #10b981;
-    --amber: #f59e0b; --purple: #8b5cf6;
+    --bg: #f8fafc;
+    --panel: #ffffff;
+    --border: #e2e8f0;
+    --text: #0f172a;
+    --muted: #64748b;
+    --accent: #2563eb;
+    --accent-light: #eff6ff;
+    --red: #ef4444;
+    --green: #10b981;
+    --amber: #f59e0b;
+    --purple: #8b5cf6;
+    --card-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
+    --hover-shadow: 0 6px 16px -2px rgba(37,99,235,0.1), 0 2px 6px -1px rgba(0,0,0,0.06);
   }
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
-         background: var(--bg); color: var(--text); font-size: 13.5px; line-height: 1.5; }
-  header { background: var(--panel); border-bottom: 1px solid var(--border); padding: 12px 24px;
-           display: flex; align-items: center; gap: 16px; position: sticky; top: 0; z-index: 10; }
-  header h1 { font-size: 16px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 8px; }
-  .tag { background: #eff6ff; color: var(--accent); font-size: 11px; padding: 2px 8px; border-radius: 6px; font-weight: 600; border: 1px solid #bfdbfe; }
-  .tag.live { background: #fef3c7; color: #b45309; border-color: #fde68a; animation: pulse 2s infinite; }
-  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-  
-  header .filters { margin-left: auto; display: flex; gap: 10px; align-items: center; }
-  select, button { padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px;
-                   background: #fff; font-size: 13px; outline: none; }
-  button { cursor: pointer; background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 500; }
-  button.ghost { background: #fff; color: var(--text); border-color: var(--border); }
-  
-  main { padding: 20px 24px; display: grid; grid-template-columns: 320px 1fr; gap: 20px;
-         max-width: 1440px; margin: 0 auto; min-height: calc(100vh - 65px); }
-  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
-           padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
-  .panel h2 { font-size: 14px; font-weight: 700; color: #334155; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; }
-  
-  #run-list { overflow-y: auto; max-height: calc(100vh - 110px); }
-  .run-item { padding: 12px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 10px;
-              cursor: pointer; transition: all 0.15s; background: #fff; }
-  .run-item:hover { border-color: var(--accent); }
-  .run-item.active { border-color: var(--accent); background: #eff6ff; }
-  .run-item .rid { font-weight: 700; font-size: 13px; color: #1e293b; display: flex; justify-content: space-between; align-items: center; }
-  .run-item .meta { color: var(--muted); font-size: 12px; margin-top: 4px; }
-  
-  .badge { display: inline-block; padding: 2px 7px; border-radius: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
-  .badge.SUCCESS { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 13.5px;
+    line-height: 1.5;
+  }
+
+  header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+  }
+  header h1 {
+    font-size: 16px;
+    font-weight: 700;
+    color: #1e293b;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .logo-icon {
+    width: 24px;
+    height: 24px;
+    background: linear-gradient(135deg, #2563eb, #3b82f6);
+    color: #fff;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 800;
+  }
+  .tag {
+    background: #ecfdf5;
+    color: #059669;
+    font-size: 11px;
+    padding: 2px 9px;
+    border-radius: 6px;
+    font-weight: 600;
+    border: 1px solid #a7f3d0;
+  }
+  header .controls {
+    margin-left: auto;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+  button {
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #fff;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-weight: 500;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.primary:hover { background: #1d4ed8; color: #fff; }
+
+  main {
+    padding: 20px 24px;
+    display: grid;
+    grid-template-columns: 310px 1fr;
+    gap: 20px;
+    max-width: 1480px;
+    margin: 0 auto;
+    min-height: calc(100vh - 65px);
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+    box-shadow: var(--card-shadow);
+  }
+  .panel h2 {
+    font-size: 14px;
+    font-weight: 700;
+    color: #334155;
+    margin-bottom: 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  /* 会话列表 */
+  .run-item {
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    transition: all 0.15s;
+    background: #fff;
+  }
+  .run-item:hover {
+    border-color: var(--accent);
+    transform: translateY(-1px);
+    box-shadow: var(--hover-shadow);
+  }
+  .run-item.active {
+    border-color: var(--accent);
+    background: #eff6ff;
+    border-left: 4px solid var(--accent);
+  }
+  .run-item .rid {
+    font-weight: 700;
+    font-size: 13px;
+    color: #1e293b;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .run-item .meta {
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 5px;
+  }
+
+  /* 状态徽章 */
+  .badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .badge.SUCCESS, .badge.COMPLETED { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
   .badge.RUNNING { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; animation: pulse 1.8s infinite; }
   .badge.REOPENED { background: #ffedd5; color: #c2410c; border: 1px solid #fed7aa; }
-  .badge.PENDING { background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }
   .badge.FAILED { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
+  .badge.PENDING { background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
-  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
-  .stat { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; background: #fafafa; }
+  /* 核心 KPI 卡片 */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .stat {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    background: #fafafa;
+  }
   .stat .k { color: var(--muted); font-size: 12px; font-weight: 500; }
-  .stat .v { font-size: 20px; font-weight: 800; margin-top: 3px; color: #0f172a; }
-  
-  .tabbar { display: flex; gap: 6px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
-  .tabbar button { background: none; border: none; color: var(--muted); padding: 9px 16px;
-                   border-radius: 0; border-bottom: 2px solid transparent; font-weight: 600; font-size: 13px; }
-  .tabbar button.on { color: var(--accent); border-bottom-color: var(--accent); }
-  
+  .stat .v { font-size: 18px; font-weight: 800; margin-top: 3px; color: #0f172a; }
+
+  /* 宏观流水线阶段步进器 (Macro Pipeline Stepper) */
+  .pipeline-stepper-box {
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 20px;
+  }
+  .pipeline-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  .pipeline-header-title {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: #334155;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .pipeline-flow {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 10px;
+    position: relative;
+  }
+  .pipeline-step {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    position: relative;
+    transition: all 0.2s;
+  }
+  .pipeline-step:hover {
+    border-color: var(--accent);
+    box-shadow: var(--card-shadow);
+  }
+  .pipeline-step.COMPLETED { border-top: 3px solid var(--green); }
+  .pipeline-step.REOPENED { border-top: 3px solid var(--amber); }
+  .pipeline-step.RUNNING { border-top: 3px solid var(--accent); animation: pulse 2s infinite; }
+  .pipeline-step-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+  }
+  .pipeline-step-name {
+    font-size: 12px;
+    font-weight: 700;
+    color: #1e293b;
+  }
+  .pipeline-step-role {
+    font-size: 10.5px;
+    color: var(--accent);
+    font-weight: 600;
+    background: var(--accent-light);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  .pipeline-step-desc {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 4px;
+    line-height: 1.4;
+  }
+  .pipeline-step-time {
+    font-size: 10.5px;
+    color: #94a3b8;
+    margin-top: 4px;
+    text-align: right;
+  }
+
+  /* 选项卡导航 */
+  .tabbar {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .tabbar button {
+    background: none;
+    border: none;
+    color: var(--muted);
+    padding: 9px 16px;
+    border-radius: 0;
+    border-bottom: 2px solid transparent;
+    font-weight: 600;
+    font-size: 13px;
+  }
+  .tabbar button.on {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
   .tab-content { display: none; }
   .tab-content.active { display: block; }
+
+  /* DAG 拓扑图画板 */
+  .dag-container {
+    position: relative;
+    min-height: 420px;
+    background: #fafafa;
+    background-image: radial-gradient(#e2e8f0 1.2px, transparent 1.2px);
+    background-size: 20px 20px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: auto;
+    padding: 24px;
+  }
+  .dag-canvas {
+    position: relative;
+    min-width: 800px;
+    min-height: 360px;
+  }
+  .dag-svg-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  /* 流动光效线条 */
+  @keyframes dagFlow {
+    from { stroke-dashoffset: 24; }
+    to { stroke-dashoffset: 0; }
+  }
+  .dag-edge-bg {
+    stroke: #e2e8f0;
+    stroke-width: 5px;
+    stroke-linecap: round;
+    fill: none;
+  }
+  .dag-edge-flow {
+    stroke: #3b82f6;
+    stroke-width: 2.2px;
+    stroke-linecap: round;
+    fill: none;
+    stroke-dasharray: 6 5;
+    animation: dagFlow 1.2s linear infinite;
+  }
+
+  /* DAG 节点卡片 */
+  .dag-node-item {
+    position: absolute;
+    width: 200px;
+    background: #ffffff;
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 12px;
+    box-shadow: var(--card-shadow);
+    cursor: pointer;
+    transition: all 0.2s;
+    z-index: 2;
+  }
+  .dag-node-item:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--hover-shadow);
+  }
+  .dag-node-item.active {
+    outline: 2px solid var(--accent);
+    box-shadow: 0 0 0 4px rgba(37,99,235,0.15);
+  }
+  .dag-node-item.COMPLETED { border-color: var(--green); border-left: 5px solid var(--green); }
+  .dag-node-item.RUNNING { border-color: var(--accent); border-left: 5px solid var(--accent); animation: pulse 1.8s infinite; }
+  .dag-node-item.REOPENED { border-color: var(--amber); border-left: 5px solid var(--amber); }
+  .dag-node-item.FAILED { border-color: var(--red); border-left: 5px solid var(--red); }
   
-  /* DAG 拓扑图画布 */
-  .dag-container { position: relative; min-height: 380px; background: #fafafa;
-                   background-image: radial-gradient(#e2e8f0 1.2px, transparent 1.2px);
-                   background-size: 20px 20px; border: 1px solid var(--border);
-                   border-radius: 8px; overflow: auto; padding: 24px; }
-  .dag-canvas { position: relative; min-width: 720px; min-height: 320px; }
-  .dag-svg-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
-  .dag-node-item { position: absolute; width: 175px; background: #ffffff; border: 1.5px solid var(--border);
-                   border-radius: 8px; padding: 10px 12px; font-size: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.04);
-                   cursor: pointer; transition: all 0.2s; z-index: 2; }
-  .dag-node-item:hover { transform: translateY(-2px); box-shadow: 0 6px 14px rgba(0,0,0,0.08); }
-  .dag-node-item.active { outline: 2px solid var(--accent); }
-  .dag-node-item.COMPLETED { border-color: var(--green); border-left-width: 5px; }
-  .dag-node-item.RUNNING { border-color: var(--accent); border-left-width: 5px; animation: pulse 1.8s infinite; }
-  .dag-node-item.REOPENED { border-color: var(--amber); border-left-width: 5px; }
-  .dag-node-item.PENDING { border-color: var(--border); border-left-width: 5px; opacity: 0.85; }
-  
-  .dag-node-title { font-weight: 700; font-size: 13px; color: #1e293b; display: flex; justify-content: space-between; align-items: center; }
-  .dag-node-sub { color: var(--muted); font-size: 11px; margin-top: 4px; }
-  .dag-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-  .dag-legend { display: flex; gap: 12px; font-size: 11px; align-items: center; }
-  .dag-legend-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
-  .dag-drawer { margin-top: 14px; padding: 12px 16px; border: 1px solid var(--border); border-radius: 8px; background: #fff; font-size: 12px; }
-  
+  .dag-node-tag {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .dag-node-title {
+    font-weight: 700;
+    font-size: 13px;
+    color: #1e293b;
+    line-height: 1.3;
+    margin-bottom: 6px;
+  }
+  .dag-node-worker {
+    font-size: 11px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .dag-node-output {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px dashed var(--border);
+    font-size: 11px;
+    color: #059669;
+    font-weight: 600;
+  }
+
+  /* 阶段列头指示 */
+  .dag-stage-col-header {
+    position: absolute;
+    top: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #64748b;
+    background: #f1f5f9;
+    padding: 3px 10px;
+    border-radius: 12px;
+    border: 1px solid #cbd5e1;
+    text-align: center;
+  }
+
+  /* 节点下钻详情抽屉 */
+  .dag-drawer {
+    margin-top: 14px;
+    padding: 14px 18px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #ffffff;
+    box-shadow: var(--card-shadow);
+  }
+
+  /* 表格样式 */
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
   th { color: var(--muted); font-weight: 600; background: #f8fafc; font-size: 12px; }
   tr:hover td { background: #f8fafc; }
-  
-  .timeline { display: flex; flex-direction: column; gap: 8px; max-height: 520px; overflow-y: auto; }
-  .tl-item { display: grid; grid-template-columns: 85px 120px 110px 1fr 70px; gap: 10px; align-items: baseline;
-              padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border); background: #fff; font-size: 12px; }
-  .tl-item:hover { background: #f8fafc; }
+
+  /* 事件流列表 */
+  .timeline { display: flex; flex-direction: column; gap: 8px; max-height: 540px; overflow-y: auto; }
+  .tl-item {
+    display: grid;
+    grid-template-columns: 85px 120px 110px 1fr 70px;
+    gap: 12px;
+    align-items: baseline;
+    padding: 9px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #fff;
+    font-size: 12px;
+    transition: all 0.15s;
+  }
+  .tl-item:hover { background: #f8fafc; border-color: #cbd5e1; }
   .tl-time { color: var(--muted); font-family: monospace; font-size: 11px; }
-  .tl-node { font-weight: 600; color: #4338ca; background: #e0e7ff; padding: 1px 6px; border-radius: 4px; font-size: 11px; width: fit-content; }
+  .tl-node {
+    font-weight: 600;
+    color: #4338ca;
+    background: #e0e7ff;
+    padding: 2px 7px;
+    border-radius: 5px;
+    font-size: 11px;
+    width: fit-content;
+  }
   .tl-evt { font-weight: 600; color: #1e293b; }
   .tl-meta { color: #475569; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tl-dur { text-align: right; color: var(--muted); font-family: monospace; font-size: 11px; }
@@ -104,48 +454,48 @@
 
 <header>
   <h1>
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-    CyberClaw Research 可观测性看板 (Dashboard)
+    <div class="logo-icon">C</div>
+    CyberClaw Research 多智能体全景可观测看板
   </h1>
-  <span class="tag" id="header-tag">All Pipelines Completed</span>
-  <div class="filters">
-    <button class="ghost" onclick="refreshData()">重新扫描 logs/*.jsonl</button>
+  <span class="tag">端到端全链路闭环 · 100% 审计追溯</span>
+  <div class="controls">
+    <button onclick="window.location.reload()">重新载入</button>
   </div>
 </header>
 
 <main>
-  <!-- 左侧：多 Run 列表 -->
+  <!-- 左侧：多会话列表 -->
   <div id="run-list" class="panel">
     <h2>
-      历史与活跃会话 (Runs)
+      运行会话 (Runs)
       <span style="font-size:12px; font-weight:normal; color:var(--muted)">2 个会话</span>
     </h2>
     
-    <!-- 活跃未完成 Run -->
+    <!-- 闭环菱形并发会话 -->
     <div class="run-item active" id="item-run-active-9002" onclick="selectRun('run-active-9002')">
       <div class="rid">
         <span>run-active-9002</span>
         <span class="badge SUCCESS">SUCCESS</span>
       </div>
-      <div class="meta" style="margin-top:5px; color:#334155; font-weight:500;">
-        语音大模型前沿架构对比...
+      <div class="meta" style="margin-top:6px; color:#1e293b; font-weight:600;">
+        语音大模型前沿架构与消融调研
       </div>
       <div class="meta">
-        <span>14:30:00</span> · <span>18.2s (已闭环)</span> · <span>4 节点并发</span>
+        <span>14:30:00</span> · <span>18.2s</span> · <span>菱形并发 (4节点闭环)</span>
       </div>
     </div>
 
-    <!-- 已完成历史 Run -->
+    <!-- 历史重开自愈会话 -->
     <div class="run-item" id="item-run-sim-8891" onclick="selectRun('run-sim-8891')">
       <div class="rid">
         <span>run-sim-8891</span>
         <span class="badge SUCCESS">SUCCESS</span>
       </div>
-      <div class="meta" style="margin-top:5px; color:#334155; font-weight:500;">
-        对比 x-vector 与 ECAPA-TDNN...
+      <div class="meta" style="margin-top:6px; color:#1e293b; font-weight:600;">
+        对比 x-vector 与 ECAPA-TDNN 架构
       </div>
       <div class="meta">
-        <span>10:00:00</span> · <span>15.6s</span> · <span>1 已重开</span>
+        <span>10:00:00</span> · <span>15.6s</span> · <span>红队发难 ➔ 局部重开自愈</span>
       </div>
     </div>
   </div>
@@ -154,52 +504,66 @@
   <div id="detail" class="panel">
     <h2>
       <span id="detail-title">会话运行全景详情 - run-active-9002</span>
-      <span class="badge RUNNING" id="detail-badge">RUNNING</span>
+      <span class="badge SUCCESS" id="detail-badge">SUCCESS</span>
     </h2>
 
     <!-- 核心指标卡 -->
     <div class="stat-grid">
       <div class="stat">
-        <div class="k">流水线耗时</div>
-        <div class="v" id="kpi-duration" style="color:var(--accent)">8.5s</div>
+        <div class="k">总执行耗时</div>
+        <div class="v" id="kpi-duration" style="color:var(--accent)">18.2s</div>
       </div>
       <div class="stat">
-        <div class="k">DAG 任务状态</div>
-        <div class="v" id="kpi-tasks">1完成 / 2进行中</div>
+        <div class="k">DAG 任务完成度</div>
+        <div class="v" id="kpi-tasks">4 / 4 闭环</div>
       </div>
       <div class="stat">
-        <div class="k">注册证据切片</div>
-        <div class="v" id="kpi-evidences" style="color:var(--green)">3 篇</div>
+        <div class="k">精准证据切片</div>
+        <div class="v" id="kpi-evidences" style="color:var(--green)">7 篇切片</div>
       </div>
       <div class="stat">
-        <div class="k">引文校验状态</div>
-        <div class="v" id="kpi-citation" style="color:var(--amber)">待汇聚校验</div>
+        <div class="k">引文对账状态</div>
+        <div class="v" id="kpi-citation" style="color:var(--green)">100% 支撑</div>
+      </div>
+    </div>
+
+    <!-- 顶层宏观流程步进器 (Macro Workflow Stepper) -->
+    <div class="pipeline-stepper-box">
+      <div class="pipeline-header">
+        <div class="pipeline-header-title">
+          <span>🔄</span>
+          <span>多智能体全生命周期流水线阶段 (Multi-Agent Lifecycle Stages)</span>
+        </div>
+        <span style="font-size:11px; color:var(--muted)">按时序自动协同推进 · 阶段全景流转</span>
+      </div>
+      <div class="pipeline-flow" id="pipeline-stepper-container">
+        <!-- 动态生成 6 个阶梯卡片 -->
       </div>
     </div>
 
     <!-- 选项卡导航 -->
     <div class="tabbar">
-      <button class="on" onclick="switchTab('tab-dag', this)">1. 多智能体任务拓扑图 (DAG)</button>
-      <button onclick="switchTab('tab-rag', this)">2. RAG 多跳推演对账 (Iterative)</button>
-      <button onclick="switchTab('tab-events', this)">3. 全链路事件流 (Event Stream)</button>
-      <button onclick="switchTab('tab-report', this)">4. 最终报告与引文 (Report)</button>
+      <button class="on" onclick="switchTab('tab-dag', this)">1. 多智能体任务拓扑图 (Task DAG & Flow)</button>
+      <button onclick="switchTab('tab-rag', this)">2. RAG 多跳推演与盲区对账 (Iterative RAG)</button>
+      <button onclick="switchTab('tab-events', this)">3. 全链路审计事件流 (Event Stream)</button>
+      <button onclick="switchTab('tab-report', this)">4. 交付研报与证据外键核验 (Report & Citations)</button>
     </div>
 
-    <!-- Tab 1: DAG 拓扑图 -->
+    <!-- Tab 1: DAG 拓扑图与流程 -->
     <div id="tab-dag" class="tab-content active">
-      <div class="dag-toolbar">
-        <div class="dag-legend">
-          <span><i class="dag-legend-dot" style="background:var(--green)"></i>COMPLETED (完成)</span>
-          <span><i class="dag-legend-dot" style="background:var(--accent)"></i>RUNNING (运行中)</span>
-          <span><i class="dag-legend-dot" style="background:var(--amber)"></i>REOPENED (已重开)</span>
-          <span><i class="dag-legend-dot" style="background:var(--muted)"></i>PENDING (就绪等待)</span>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <div style="display:flex; gap:14px; font-size:11px; align-items:center;">
+          <span><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--green); margin-right:4px;"></span>COMPLETED (完成)</span>
+          <span><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--accent); margin-right:4px;"></span>RUNNING (执行中)</span>
+          <span><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--amber); margin-right:4px;"></span>REOPENED (重开自愈)</span>
+          <span><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--red); margin-right:4px;"></span>FAILED (拦截)</span>
         </div>
-        <div style="font-size:12px; color:var(--muted)">自动分层 DAG 拓扑 · 支持点击节点下钻抽屉</div>
+        <div style="font-size:12px; color:var(--muted)">流动虚线标识数据流向 · 点击节点下钻查看产出切片与前驱输入</div>
       </div>
       
       <div class="dag-container">
         <div id="dag-canvas-box" class="dag-canvas">
-          <!-- 动态渲染 SVG 与 节点 -->
+          <!-- 动态渲染 SVG 流程线与节点卡片 -->
         </div>
       </div>
 
@@ -212,7 +576,8 @@
         <thead>
           <tr>
             <th>跳数 (Hop)</th>
-            <th>目标知识盲区 (Gap)</th>
+            <th>关联任务</th>
+            <th>目标知识盲区 (Information Gap)</th>
             <th>精准搜索词 (Next Query)</th>
             <th>候选数 / Rerank 分</th>
             <th>充分性判定</th>
@@ -239,37 +604,7 @@
 </main>
 
 <script>
-const allRuns = {"run-active-9002": {"run_id": "run-active-9002", "query": "语音大模型前沿架构对比与消融实验综合调研", "status": "SUCCESS", "duration": "18.2s", "tasks_summary": "4 / 4 任务全部完成 (菱形并发闭环)", "evidence_count": "7 篇", "citation_status": "100% 支撑 (3条声明已校验)", "events": [{"_stage": "【会话启动】", "_annotation": "用户发起长周期多智能体深度调研任务", "schema_version": 1, "event_id": "act-001", "event_type": "run_start", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:00.000Z", "node": "agent", "task_id": "", "status": "RUNNING", "duration_ms": 0, "metadata": {"query": "语音大模型前沿架构对比与消融实验综合调研"}}, {"_stage": "【SOP 规划】", "_annotation": "Planner 拆解出菱形并发 DAG 拓扑", "schema_version": 1, "event_id": "act-002", "event_type": "task_created", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:01.200Z", "node": "planner", "task_id": "t1-FACT", "status": "SUCCESS", "duration_ms": 600, "metadata": {"task_type": "FACT", "dependencies": [], "priority": 1}}, {"_stage": "【SOP 规划】", "_annotation": "并发分支任务 1: 基准测试", "schema_version": 1, "event_id": "act-003", "event_type": "task_created", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:01.300Z", "node": "planner", "task_id": "t2-BENCH", "status": "SUCCESS", "duration_ms": 100, "metadata": {"task_type": "COMPARISON", "dependencies": ["t1-FACT"], "priority": 2}}, {"_stage": "【SOP 规划】", "_annotation": "并发分支任务 2: 消融实验", "schema_version": 1, "event_id": "act-004", "event_type": "task_created", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:01.400Z", "node": "planner", "task_id": "t3-ABLATION", "status": "SUCCESS", "duration_ms": 100, "metadata": {"task_type": "MECHANISM", "dependencies": ["t1-FACT"], "priority": 2}}, {"_stage": "【SOP 规划】", "_annotation": "汇聚任务: 综合对比（依赖 t2 和 t3）", "schema_version": 1, "event_id": "act-005", "event_type": "task_created", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:01.500Z", "node": "planner", "task_id": "t4-SYNTHESIS", "status": "SUCCESS", "duration_ms": 100, "metadata": {"task_type": "SURVEY", "dependencies": ["t2-BENCH", "t3-ABLATION"], "priority": 3}}, {"_stage": "【任务执行】", "_annotation": "t1-FACT 开始执行", "schema_version": 1, "event_id": "act-006", "event_type": "task_started", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:02.000Z", "node": "scheduler", "task_id": "t1-FACT", "status": "RUNNING", "duration_ms": 100, "metadata": {"worker": "researcher_0"}}, {"_stage": "【任务完成】", "_annotation": "t1-FACT 执行完成，产出核心事实", "schema_version": 1, "event_id": "act-007", "event_type": "task_completed", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:04.200Z", "node": "researcher", "task_id": "t1-FACT", "status": "SUCCESS", "duration_ms": 2200, "metadata": {"produced_evidences": 3}}, {"_stage": "【并发派发】", "_annotation": "Scheduler 检测到依赖就绪，并发派发 t2 与 t3", "schema_version": 1, "event_id": "act-008", "event_type": "task_started", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:04.500Z", "node": "scheduler", "task_id": "t2-BENCH", "status": "RUNNING", "duration_ms": 150, "metadata": {"worker": "researcher_worker_1"}}, {"_stage": "【并发派发】", "_annotation": "并发派发 t3-ABLATION", "schema_version": 1, "event_id": "act-009", "event_type": "task_started", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:04.600Z", "node": "scheduler", "task_id": "t3-ABLATION", "status": "RUNNING", "duration_ms": 150, "metadata": {"worker": "researcher_worker_2"}}, {"_stage": "【RAG 微观检索】", "_annotation": "t2 正在进行第 1 跳混合检索", "schema_version": 1, "event_id": "act-010", "event_type": "rag_retrieval", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:06.000Z", "node": "researcher", "task_id": "t2-BENCH", "status": "SUCCESS", "duration_ms": 1400, "metadata": {"query": "SpeechFoundation VoxCeleb EER benchmark", "dense_hits": 10, "sparse_hits": 10}}, {"_stage": "【多跳推演】", "_annotation": "t2 决策：信息尚不充分，正在计算第 2 跳搜索词", "schema_version": 1, "event_id": "act-011", "event_type": "multi_hop_iteration", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:07.500Z", "node": "researcher", "task_id": "t2-BENCH", "status": "RUNNING", "duration_ms": 1200, "metadata": {"iteration": 1, "is_sufficient": false, "gap": "缺失微调协议 (Fine-tuning protocol) 详细设置", "next_query": "SpeechFoundation fine-tuning protocol learning rate batch size"}}, {"_stage": "【RAG 微观检索 (第 2 跳)】", "_annotation": "t2 带着 Gap 进行第 2 跳检索并精排", "schema_version": 1, "event_id": "act-012", "event_type": "rag_retrieval", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:09.000Z", "node": "researcher", "task_id": "t2-BENCH", "status": "SUCCESS", "duration_ms": 1500, "metadata": {"query": "SpeechFoundation fine-tuning protocol learning rate batch size", "dense_hits": 8, "sparse_hits": 8}}, {"_stage": "【多跳推演决策】", "_annotation": "t2 决策：微调协议与 EER 数据已完整闭环，判定充分退出多跳", "schema_version": 1, "event_id": "act-013", "event_type": "multi_hop_iteration", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:10.200Z", "node": "researcher", "task_id": "t2-BENCH", "status": "SUCCESS", "duration_ms": 1200, "metadata": {"iteration": 2, "is_sufficient": true, "gap": "", "action": "STOP", "stop_reason": "SUFFICIENT"}}, {"_stage": "【证据注册】", "_annotation": "t2 注册基准实验证据并绑定 source_id 外键", "schema_version": 1, "event_id": "act-014", "event_type": "evidence_registered", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:10.500Z", "node": "researcher", "task_id": "t2-BENCH", "status": "SUCCESS", "duration_ms": 300, "metadata": {"evidence_id": "evi-bench-01", "source_id": "src-voxceleb-leaderboard", "metric": "EER 1.12%"}}, {"_stage": "【任务完成】", "_annotation": "t2-BENCH 执行圆满完成", "schema_version": 1, "event_id": "act-015", "event_type": "task_completed", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:11.000Z", "node": "researcher", "task_id": "t2-BENCH", "status": "SUCCESS", "duration_ms": 6500, "metadata": {"worker": "researcher_worker_1"}}, {"_stage": "【证据注册】", "_annotation": "t3 注册注意力层消融实验证据", "schema_version": 1, "event_id": "act-016", "event_type": "evidence_registered", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:11.500Z", "node": "researcher", "task_id": "t3-ABLATION", "status": "SUCCESS", "duration_ms": 400, "metadata": {"evidence_id": "evi-ablation-01", "source_id": "src-conformer-ablation", "finding": "去除多头自注意力层导致性能下降 28%"}}, {"_stage": "【任务完成】", "_annotation": "t3-ABLATION 执行圆满完成", "schema_version": 1, "event_id": "act-017", "event_type": "task_completed", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:12.000Z", "node": "researcher", "task_id": "t3-ABLATION", "status": "SUCCESS", "duration_ms": 7400, "metadata": {"worker": "researcher_worker_2"}}, {"_stage": "【汇聚任务就绪启动】", "_annotation": "Scheduler 检测到 t2 和 t3 均已完成，将汇聚任务 t4 派发执行", "schema_version": 1, "event_id": "act-018", "event_type": "task_started", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:12.300Z", "node": "scheduler", "task_id": "t4-SYNTHESIS", "status": "RUNNING", "duration_ms": 150, "metadata": {"dependencies_resolved": ["t2-BENCH", "t3-ABLATION"]}}, {"_stage": "【汇聚任务完成】", "_annotation": "t4 综合对比分析完成，产出综合性结论", "schema_version": 1, "event_id": "act-019", "event_type": "task_completed", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:14.500Z", "node": "researcher", "task_id": "t4-SYNTHESIS", "status": "SUCCESS", "duration_ms": 2200, "metadata": {"produced_claims": 3}}, {"_stage": "【状态归约与声明推导】", "_annotation": "Aggregator 汇聚 4 任务成果，ID Reducer 覆写去重，推导 3 条 Claim", "schema_version": 1, "event_id": "act-020", "event_type": "aggregation", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:15.200Z", "node": "aggregator", "task_id": "", "status": "SUCCESS", "duration_ms": 700, "metadata": {"total_sources": 4, "total_evidences": 7, "claims_derived": 3}}, {"_stage": "【红队质检审查】", "_annotation": "Review 节点核验 3 条声明，所有数据均有实验与文献支撑，无漏洞", "schema_version": 1, "event_id": "act-021", "event_type": "review_issue", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:16.000Z", "node": "review", "task_id": "", "status": "SUCCESS", "duration_ms": 800, "metadata": {"issues_found": 0, "verdict": "CLEAN"}}, {"_stage": "【终审裁决】", "_annotation": "Judge 确认质检全绿，裁决放行转入 Compiler 编译成文", "schema_version": 1, "event_id": "act-022", "event_type": "judge_decision", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:16.400Z", "node": "judge", "task_id": "", "status": "SUCCESS", "duration_ms": 400, "metadata": {"decision": "COMPILE", "stagnant_rounds": 0}}, {"_stage": "【引文角标校验】", "_annotation": "Compiler 验证 3 条 Claim 绑定的 7 条证据外键均有效存在", "schema_version": 1, "event_id": "act-023", "event_type": "citation_verified", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:17.100Z", "node": "compiler", "task_id": "", "status": "SUCCESS", "duration_ms": 700, "metadata": {"citations_verified": 3, "all_supported": true}}, {"_stage": "【最终成果交付】", "_annotation": "渲染标准 Markdown 研报与角标并交付给终端用户", "schema_version": 1, "event_id": "act-024", "event_type": "ai_message", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:18.100Z", "node": "agent", "task_id": "", "status": "SUCCESS", "duration_ms": 1000, "metadata": {"content": "## 语音大模型前沿架构对比与消融实验综合调研报告
-
-1. **架构基础**：现代语音大模型普遍采用 Conformer 或混合时延卷积结构以融合局部与全局时序特征 [1]。
-2. **基准性能**：在 VoxCeleb 说话人验证排行榜中，采用预训练大底模微调的架构取得了 EER 1.12% 的前沿性能 [2]。
-3. **消融分析**：多头自注意力机制（MHSA）对长程上下文建模起决定性作用，消融测试表明移除自注意力层会导致 EER 恶化约 28% [3]。
-
-### 参考文献
-[1] Gulati et al. (2020). Conformer: Convolution-augmented Transformer for Speech Recognition.
-[2] VoxCeleb Leaderboard (2023). Fine-tuned SpeechFoundation Benchmarks.
-[3] Speech Transformer Ablation Studies (2022)."}}, {"_stage": "【会话成功收口】", "_annotation": "全流程执行完毕，记录总耗时 18.2s，状态 SUCCESS", "schema_version": 1, "event_id": "act-025", "event_type": "run_end", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:18.200Z", "node": "agent", "task_id": "", "status": "SUCCESS", "duration_ms": 18200, "metadata": {"total_tasks": 4, "completed_tasks": 4, "failed_tasks": 0}}], "dag_tasks": [{"task_id": "t1-FACT", "task_type": "FACT", "status": "COMPLETED", "duration_ms": 2200, "priority": 1, "dependencies": []}, {"task_id": "t2-BENCH", "task_type": "COMPARISON", "status": "COMPLETED", "duration_ms": 6500, "priority": 2, "dependencies": ["t1-FACT"]}, {"task_id": "t3-ABLATION", "task_type": "MECHANISM", "status": "COMPLETED", "duration_ms": 7400, "priority": 2, "dependencies": ["t1-FACT"]}, {"task_id": "t4-SYNTHESIS", "task_type": "SURVEY", "status": "COMPLETED", "duration_ms": 2200, "priority": 3, "dependencies": ["t2-BENCH", "t3-ABLATION"]}], "rag_hops": [{"iteration": 1, "gap": "缺失微调协议 (Fine-tuning protocol) 详细设置", "query": "SpeechFoundation fine-tuning protocol learning rate batch size", "hits": "10 篇粗排 / Top1: 0.93", "status": "INSUFFICIENT"}, {"iteration": 2, "gap": "无 (已补足基准 EER 1.12% 数据)", "query": "SpeechFoundation VoxCeleb benchmark evaluation protocol", "hits": "8 篇粗排 / Top1: 0.91", "status": "SUFFICIENT"}], "report_content": "<h3>语音大模型前沿架构对比与消融实验综合调研报告</h3>
-<p>1. <strong>架构基础</strong>：现代语音大模型普遍采用 Conformer 或混合时延卷积结构以融合局部与全局时序特征 <b style='color:var(--accent)'>[1]</b>。</p>
-<p>2. <strong>基准性能</strong>：在 VoxCeleb 说话人验证排行榜中，采用预训练大底模微调的架构取得了 EER 1.12% 的前沿性能 <b style='color:var(--accent)'>[2]</b>。</p>
-<p>3. <strong>消融分析</strong>：多头自注意力机制（MHSA）对长程上下文建模起决定性作用，消融测试表明移除自注意力层会导致 EER 恶化约 28% <b style='color:var(--accent)'>[3]</b>。</p>
-<hr style='margin:16px 0; border:none; border-top:1px solid var(--border);'>
-<h4 style='font-size:13px; color:var(--muted); margin-bottom:8px;'>参考文献与溯源支撑 (Verified References):</h4>
-<div style='font-size:12px; color:#475569; display:flex; flex-direction:column; gap:4px;'>
-  <div><strong>[1]</strong> Gulati et al. (2020). <em>Conformer: Convolution-augmented Transformer for Speech Recognition</em>. (关联证据: <code>evi-fact-01</code>)</div>
-  <div><strong>[2]</strong> VoxCeleb Leaderboard (2023). <em>Fine-tuned SpeechFoundation Benchmarks</em>. (关联证据: <code>evi-bench-01</code>)</div>
-  <div><strong>[3]</strong> Speech Transformer Ablation Studies (2022). <em>Multi-Head Attention Impact in ASR</em>. (关联证据: <code>evi-ablation-01</code>)</div>
-</div>"}, "run-sim-8891": {"run_id": "run-sim-8891", "query": "对比 x-vector 与 ECAPA-TDNN 的模型架构及识别性能差异", "status": "SUCCESS", "duration": "15.6s", "tasks_summary": "3 任务 (1 已重开修复)", "evidence_count": "5 篇", "citation_status": "100% 支撑", "events": [{"_stage": "【阶段一：用户交互与会话初始化】", "_annotation": "用户在终端敲击回车发送科研问题，系统分配唯一的 run_id 和 thread_id，标志会话生命周期开始。", "schema_version": 1, "event_id": "evt-0001", "event_type": "run_start", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:00.000Z", "node": "agent", "task_id": "", "status": "RUNNING", "duration_ms": 0, "metadata": {"query": "对比 x-vector 与 ECAPA-TDNN 的模型架构及识别性能差异", "user_id": "researcher_01"}}, {"_stage": "【阶段一：主循环准备意图识别】", "_annotation": "Agent ReAct 主循环将历史上下文与用户提问打包为输入，准备调用大语言模型进行意图分类与工具判定。", "schema_version": 1, "event_id": "evt-0002", "event_type": "llm_input", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:00.120Z", "node": "agent", "task_id": "", "status": "RUNNING", "duration_ms": 12, "metadata": {"message_count": 2, "has_system_prompt": true, "has_entity_ledger": true}}, {"_stage": "【阶段一：判定启动垂直领域子图】", "_annotation": "LLM 识别到这是一个典型的多维度科研对比问题，普通单轮检索无法解决，输出 tool_calls 触发多智能体调研图。", "schema_version": 1, "event_id": "evt-0003", "event_type": "tool_call", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:01.350Z", "node": "agent", "task_id": "", "status": "SUCCESS", "duration_ms": 1230, "metadata": {"tool": "research_pipeline", "args": {"topic": "x-vector vs ECAPA-TDNN", "sop_type": "COMPARISON"}}}, {"_stage": "【阶段二：SOP 拆解与任务 DAG 生成】", "_annotation": "Planner 节点依据 COMPARISON SOP 契约，将总主题拆解为带有依赖拓扑的结构化任务图（DAG）。", "schema_version": 1, "event_id": "evt-0004", "event_type": "task_created", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:02.100Z", "node": "planner", "task_id": "t1-ARCH", "status": "SUCCESS", "duration_ms": 750, "metadata": {"task_type": "MECHANISM", "objective": "调研两者时延卷积与通道注意力机制差异", "dependencies": []}}, {"_stage": "【阶段二：生成有依赖关系的下游任务】", "_annotation": "Planner 拆解出性能测试任务，声明其逻辑上需要依赖架构和基准事实的完备。", "schema_version": 1, "event_id": "evt-0005", "event_type": "task_created", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:02.200Z", "node": "planner", "task_id": "t2-PERF", "status": "SUCCESS", "duration_ms": 100, "metadata": {"task_type": "COMPARISON", "objective": "调研两者在 VoxCeleb1/2 数据集上的 EER 性能指标", "dependencies": ["t1-ARCH"]}}, {"_stage": "【阶段二：调度器并发派发任务】", "_annotation": "Scheduler 扫描 DAG，发现 t1-ARCH 无前置依赖（就绪），利用 LangGraph Send API 异步发车派发给 Researcher。", "schema_version": 1, "event_id": "evt-0006", "event_type": "task_started", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:02.400Z", "node": "scheduler", "task_id": "t1-ARCH", "status": "RUNNING", "duration_ms": 200, "metadata": {"action": "send_to_worker", "worker": "researcher_worker_0"}}, {"_stage": "【阶段三：RAG 混合召回（第一跳）】", "_annotation": "负责 t1-ARCH 的 Researcher 启动微观检索，调用本地向量库与 BM25 进行双路粗排并以 RRF (k=60) 融合。", "schema_version": 1, "event_id": "evt-0007", "event_type": "rag_retrieval", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:03.500Z", "node": "researcher", "task_id": "t1-ARCH", "status": "SUCCESS", "duration_ms": 1100, "metadata": {"query": "ECAPA-TDNN architecture Squeeze-and-Excitation", "dense_hits": 10, "sparse_hits": 10, "fused_candidates": 8}}, {"_stage": "【阶段三：Cross-Encoder 二次精排】", "_annotation": "候选文档被送入 bge-reranker-v2-m3 远端接口进行打分，截取 Top-3 最高相关性切片以防上下文噪音。", "schema_version": 1, "event_id": "evt-0008", "event_type": "rerank", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:03.850Z", "node": "researcher", "task_id": "t1-ARCH", "status": "SUCCESS", "duration_ms": 350, "metadata": {"model": "bge-reranker-v2-m3", "top1_score": 0.912, "retained_chunks": 3}}, {"_stage": "【阶段三：多跳推演与 Gap 暴露】", "_annotation": "决策模型对账发现查到了 ECAPA 细节，但对比基准 x-vector 的帧级池化机制尚未完整，判定不足并触发第二跳补检索。", "schema_version": 1, "event_id": "evt-0009", "event_type": "multi_hop_iteration", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:04.900Z", "node": "researcher", "task_id": "t1-ARCH", "status": "SUCCESS", "duration_ms": 1050, "metadata": {"iteration": 1, "is_sufficient": false, "information_gain": true, "gap": "缺失原始 x-vector 统计池化层 (Statistical Pooling) 的参数实现", "next_query": "x-vector statistical pooling layer temporal context"}}, {"_stage": "【阶段三：证据注册与外键锁定】", "_annotation": "第二跳检索补足信息后，Researcher 将客观原文切片注册为 Evidence，并强制挂载来源网址的 source_id 外键。", "schema_version": 1, "event_id": "evt-0010", "event_type": "evidence_registered", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:06.200Z", "node": "researcher", "task_id": "t1-ARCH", "status": "SUCCESS", "duration_ms": 300, "metadata": {"evidence_id": "evi-9901", "source_id": "src-snyder-2018", "quote_snippet": "In the standard x-vector architecture, frame-level features are aggregated using statistical pooling..."}}, {"_stage": "【阶段四：并发状态归约与推导结论】", "_annotation": "Aggregator 收集所有并发节点数据，通过 ID-based Reducer 覆写去重，并生成初步 Claim（挂载所依赖的证据 ID 数组）。", "schema_version": 1, "event_id": "evt-0011", "event_type": "aggregation", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:07.500Z", "node": "aggregator", "task_id": "", "status": "SUCCESS", "duration_ms": 1300, "metadata": {"total_sources": 3, "total_evidences": 5, "generated_claims": 2}}, {"_stage": "【阶段四：红队质检审查发难】", "_annotation": "Review 审查节点核查生成的结论，发现声称性能提升的数据缺乏具体的测试集拆分说明，判定存在弱证据漏洞。", "schema_version": 1, "event_id": "evt-0012", "event_type": "review_issue", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:08.800Z", "node": "review", "task_id": "", "status": "FAILED", "duration_ms": 1300, "metadata": {"issue_type": "WEAK_EVIDENCE", "target_claim_id": "clm-02", "description": "ECAPA-TDNN 的 EER 降幅缺少 VoxCeleb1-O 还是 VoxCeleb1-E 的具体协议划分证据"}}, {"_stage": "【阶段四：局部修复与下游状态级联重置】", "_annotation": "Repair 节点不下推翻全图，而是局部新建补救任务 t2-PERF-R1，并将关联下游节点标记为 REOPENED 强制局部刷新。", "schema_version": 1, "event_id": "evt-0013", "event_type": "task_reopened", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:09.100Z", "node": "repair", "task_id": "t2-PERF-R1", "status": "REOPENED", "duration_ms": 300, "metadata": {"parent_task": "t2-PERF", "repair_round": 1, "reopened_nodes": ["aggregator", "review"]}}, {"_stage": "【阶段五：终审判定放行成文】", "_annotation": "补救任务执行完毕后二次质检合格，Judge 节点评估无停滞死循环（stagnant_rounds=0），裁决放行转入 Compiler 成文。", "schema_version": 1, "event_id": "evt-0014", "event_type": "judge_decision", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:13.400Z", "node": "judge", "task_id": "", "status": "SUCCESS", "duration_ms": 400, "metadata": {"decision": "COMPILE", "stagnant_rounds": 0, "resolved_issues_count": 1}}, {"_stage": "【阶段五：引文编号程序化对账】", "_annotation": "Compiler 节点读取 SUPPORTED 状态的声明，确定性比对外键完整性，确认无空对空编造，准备渲染标准引用角标。", "schema_version": 1, "event_id": "evt-0015", "event_type": "citation_verified", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:14.200Z", "node": "compiler", "task_id": "", "status": "SUCCESS", "duration_ms": 800, "metadata": {"verified_citations": 2, "citation_ids": ["[1]", "[2]"], "has_unsupported_claims": false}}, {"_stage": "【阶段五：最终成果交付与生命周期终结】", "_annotation": "面向人类用户的最终回答生成，带有确凿的 [1][2] 引文和文末 References；系统触发 run_end 记录总耗时与资源。", "schema_version": 1, "event_id": "evt-0016", "event_type": "ai_message", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:15.500Z", "node": "agent", "task_id": "", "status": "SUCCESS", "duration_ms": 1300, "metadata": {"content_length": 650, "content": "## x-vector 与 ECAPA-TDNN 架构及性能对比
-
-1. **核心架构**：x-vector 基于标准 TDNN 与统计池化层 [1]；而 ECAPA-TDNN 引入了 Squeeze-and-Excitation 通道注意力机制与一维扩张卷积 [2]。
-2. **识别性能**：在 VoxCeleb1-O 评估集上，ECAPA-TDNN 的等错误率 (EER) 相比 x-vector 降低约 30% [2]。
-
-### 参考文献
-[1] Snyder et al. (2018). X-vectors: Robust DNN Embeddings for Speaker Recognition.
-[2] Desplanques et al. (2020). ECAPA-TDNN: Emphasized Channel Attention..."}}, {"_stage": "【阶段五：会话成功收口】", "_annotation": "全局运行生命周期结束，统计总耗时 15.6 秒，状态标记为 SUCCESS。", "schema_version": 1, "event_id": "evt-0017", "event_type": "run_end", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:15.600Z", "node": "agent", "task_id": "", "status": "SUCCESS", "duration_ms": 15600, "metadata": {"total_nodes_executed": 8, "repaired_rounds": 1}}], "dag_tasks": [{"task_id": "t1-ARCH", "task_type": "MECHANISM", "status": "COMPLETED", "duration_ms": 3800, "priority": 1, "dependencies": []}, {"task_id": "t2-PERF-R1", "task_type": "COMPARISON", "status": "REOPENED", "duration_ms": 1200, "priority": 2, "dependencies": ["t1-ARCH"]}], "rag_hops": [{"iteration": 1, "gap": "缺失原始 x-vector 统计池化层参数实现", "query": "ECAPA-TDNN architecture Squeeze-and-Excitation", "hits": "8 篇粗排 / Top1: 0.912", "status": "INSUFFICIENT"}, {"iteration": 2, "gap": "无 (已查全)", "query": "x-vector statistical pooling layer temporal context", "hits": "5 篇粗排 / Top1: 0.887", "status": "SUFFICIENT"}], "report_content": "<h3>x-vector 与 ECAPA-TDNN 架构及性能对比</h3>
-<p>1. <strong>核心架构</strong>：x-vector 基于标准 TDNN 与统计池化层 <b style='color:var(--accent)'>[1]</b>；而 ECAPA-TDNN 引入了 Squeeze-and-Excitation (SE) 通道注意力机制 <b style='color:var(--accent)'>[2]</b>。</p>
-<p>2. <strong>识别性能</strong>：在 VoxCeleb1-O 评估集上，ECAPA-TDNN 等错误率相比 x-vector 相对降低约 30% <b style='color:var(--accent)'>[2]</b>。</p>
-<hr style='margin:16px 0; border:none; border-top:1px solid var(--border);'>
-<small style='color:var(--muted)'>参考文献：[1] Snyder et al. (2018) · [2] Desplanques et al. (2020)</small>"}};
+const allRuns = {"run-active-9002": {"run_id": "run-active-9002", "title": "语音大模型前沿架构对比与消融实验调研", "query": "语音大模型前沿架构对比与消融实验综合调研", "status": "SUCCESS", "duration": "18.2s", "tasks_summary": "4 / 4 任务闭环 (菱形并发全胜)", "evidence_count": "7 篇切片", "citation_status": "100% 支撑 (3条声明已程序化核验)", "pipeline_stages": [{"id": "stage-1", "name": "1. SOP 规划", "role": "Planner", "desc": "拆解 4 节点菱形并发 DAG 拓扑", "status": "COMPLETED", "time": "1.2s", "icon": "📋"}, {"id": "stage-2", "name": "2. 并发调度", "role": "Scheduler", "desc": "Send API 异步派发 Worker-1 & Worker-2", "status": "COMPLETED", "time": "0.4s", "icon": "⚡"}, {"id": "stage-3", "name": "3. 证据多跳检索", "role": "Researcher", "desc": "双路 RRF + Rerank，双跳填补盲区", "status": "COMPLETED", "time": "8.5s", "icon": "🔍"}, {"id": "stage-4", "name": "4. 状态归约推导", "role": "Aggregator", "desc": "ID Reducer 去重，推导 3 条 Claim", "status": "COMPLETED", "time": "0.7s", "icon": "🧩"}, {"id": "stage-5", "name": "5. 红队质检", "role": "Reviewer", "desc": "三方交叉核验，无漏洞无幻觉", "status": "COMPLETED", "time": "1.2s", "icon": "🛡️"}, {"id": "stage-6", "name": "6. 引文成文交付", "role": "Compiler", "desc": "外键比对对账，输出带引文研报", "status": "COMPLETED", "time": "1.7s", "icon": "📄"}], "dag_tasks": [{"task_id": "t1-FACT", "name": "基础事实与架构共识", "stage_tag": "Step 1: 基础基石", "task_type": "FACT", "status": "COMPLETED", "duration_ms": 2200, "priority": 1, "worker": "researcher_worker_0", "produced": "产出 3 篇核心文献切片", "summary": "调研 Conformer 融合局部卷积与全局时序特征的基础原理", "dependencies": []}, {"task_id": "t2-BENCH", "name": "VoxCeleb 基准表现评测", "stage_tag": "Step 2A: 并发分支", "task_type": "COMPARISON", "status": "COMPLETED", "duration_ms": 6500, "priority": 2, "worker": "researcher_worker_1", "produced": "产出 2 篇基准实验数据", "summary": "微调大底模取得 EER 1.12% 前沿性能指标，多跳补足训练超参", "dependencies": ["t1-FACT"]}, {"task_id": "t3-ABLATION", "name": "多头注意力层消融实验", "stage_tag": "Step 2B: 并发分支", "task_type": "MECHANISM", "status": "COMPLETED", "duration_ms": 7400, "priority": 2, "worker": "researcher_worker_2", "produced": "产出 2 篇消融对比切片", "summary": "移除 MHSA 导致长程建模失效，EER 指标相对恶化 28%", "dependencies": ["t1-FACT"]}, {"task_id": "t4-SYNTHESIS", "name": "综合推导与结论收敛", "stage_tag": "Step 3: 汇聚总结", "task_type": "SURVEY", "status": "COMPLETED", "duration_ms": 2200, "priority": 3, "worker": "synthesizer_agent", "produced": "推导 3 条无懈可击声明", "summary": "综合基准测试与消融实验，输出全面调研结论，准备交付", "dependencies": ["t2-BENCH", "t3-ABLATION"]}], "rag_hops": [{"iteration": 1, "task_id": "t2-BENCH", "gap": "缺失微调协议 (Fine-tuning protocol) 详细设置与超参数", "query": "SpeechFoundation fine-tuning protocol learning rate batch size", "hits": "10 篇粗排 / Top1 相关度: 0.93", "status": "INSUFFICIENT", "action": "TRIGGER_HOP_2"}, {"iteration": 2, "task_id": "t2-BENCH", "gap": "无 (已补足基准 EER 1.12% 数据与训练超参，形成闭环)", "query": "SpeechFoundation VoxCeleb benchmark evaluation protocol", "hits": "8 篇粗排 / Top1 相关度: 0.91", "status": "SUFFICIENT", "action": "STOP"}], "events": [{"_stage": "【会话启动】", "_annotation": "用户发起长周期多智能体深度调研任务", "schema_version": 1, "event_id": "act-001", "event_type": "run_start", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:00.000Z", "node": "agent", "task_id": "", "status": "RUNNING", "duration_ms": 0, "metadata": {"query": "语音大模型前沿架构对比与消融实验综合调研"}}, {"_stage": "【SOP 规划】", "_annotation": "Planner 拆解出菱形并发 DAG 拓扑", "schema_version": 1, "event_id": "act-002", "event_type": "task_created", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:01.200Z", "node": "planner", "task_id": "t1-FACT", "status": "SUCCESS", "duration_ms": 600, "metadata": {"task_type": "FACT", "dependencies": [], "priority": 1}}, {"_stage": "【SOP 规划】", "_annotation": "并发分支任务 1: 基准测试", "schema_version": 1, "event_id": "act-003", "event_type": "task_created", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:01.300Z", "node": "planner", "task_id": "t2-BENCH", "status": "SUCCESS", "duration_ms": 100, "metadata": {"task_type": "COMPARISON", "dependencies": ["t1-FACT"], "priority": 2}}, {"_stage": "【SOP 规划】", "_annotation": "并发分支任务 2: 消融实验", "schema_version": 1, "event_id": "act-004", "event_type": "task_created", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:01.400Z", "node": "planner", "task_id": "t3-ABLATION", "status": "SUCCESS", "duration_ms": 100, "metadata": {"task_type": "MECHANISM", "dependencies": ["t1-FACT"], "priority": 2}}, {"_stage": "【SOP 规划】", "_annotation": "汇聚任务: 综合对比（依赖 t2 和 t3）", "schema_version": 1, "event_id": "act-005", "event_type": "task_created", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:01.500Z", "node": "planner", "task_id": "t4-SYNTHESIS", "status": "SUCCESS", "duration_ms": 100, "metadata": {"task_type": "SURVEY", "dependencies": ["t2-BENCH", "t3-ABLATION"], "priority": 3}}, {"_stage": "【任务执行】", "_annotation": "t1-FACT 开始执行", "schema_version": 1, "event_id": "act-006", "event_type": "task_started", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:02.000Z", "node": "scheduler", "task_id": "t1-FACT", "status": "RUNNING", "duration_ms": 100, "metadata": {"worker": "researcher_0"}}, {"_stage": "【任务完成】", "_annotation": "t1-FACT 执行完成，产出核心事实", "schema_version": 1, "event_id": "act-007", "event_type": "task_completed", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:04.200Z", "node": "researcher", "task_id": "t1-FACT", "status": "SUCCESS", "duration_ms": 2200, "metadata": {"produced_evidences": 3}}, {"_stage": "【并发派发】", "_annotation": "Scheduler 检测到依赖就绪，并发派发 t2 与 t3", "schema_version": 1, "event_id": "act-008", "event_type": "task_started", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:04.500Z", "node": "scheduler", "task_id": "t2-BENCH", "status": "RUNNING", "duration_ms": 150, "metadata": {"worker": "researcher_worker_1"}}, {"_stage": "【并发派发】", "_annotation": "并发派发 t3-ABLATION", "schema_version": 1, "event_id": "act-009", "event_type": "task_started", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:04.600Z", "node": "scheduler", "task_id": "t3-ABLATION", "status": "RUNNING", "duration_ms": 150, "metadata": {"worker": "researcher_worker_2"}}, {"_stage": "【RAG 微观检索】", "_annotation": "t2 正在进行第 1 跳混合检索", "schema_version": 1, "event_id": "act-010", "event_type": "rag_retrieval", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:06.000Z", "node": "researcher", "task_id": "t2-BENCH", "status": "SUCCESS", "duration_ms": 1400, "metadata": {"query": "SpeechFoundation VoxCeleb EER benchmark", "dense_hits": 10, "sparse_hits": 10}}, {"_stage": "【多跳推演】", "_annotation": "t2 决策：信息尚不充分，正在计算第 2 跳搜索词", "schema_version": 1, "event_id": "act-011", "event_type": "multi_hop_iteration", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:07.500Z", "node": "researcher", "task_id": "t2-BENCH", "status": "RUNNING", "duration_ms": 1200, "metadata": {"iteration": 1, "is_sufficient": false, "gap": "缺失微调协议 (Fine-tuning protocol) 详细设置", "next_query": "SpeechFoundation fine-tuning protocol learning rate batch size"}}, {"_stage": "【RAG 微观检索 (第 2 跳)】", "_annotation": "t2 带着 Gap 进行第 2 跳检索并精排", "schema_version": 1, "event_id": "act-012", "event_type": "rag_retrieval", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:09.000Z", "node": "researcher", "task_id": "t2-BENCH", "status": "SUCCESS", "duration_ms": 1500, "metadata": {"query": "SpeechFoundation fine-tuning protocol learning rate batch size", "dense_hits": 8, "sparse_hits": 8}}, {"_stage": "【多跳推演决策】", "_annotation": "t2 决策：微调协议与 EER 数据已完整闭环，判定充分退出多跳", "schema_version": 1, "event_id": "act-013", "event_type": "multi_hop_iteration", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:10.200Z", "node": "researcher", "task_id": "t2-BENCH", "status": "SUCCESS", "duration_ms": 1200, "metadata": {"iteration": 2, "is_sufficient": true, "gap": "", "action": "STOP", "stop_reason": "SUFFICIENT"}}, {"_stage": "【证据注册】", "_annotation": "t2 注册基准实验证据并绑定 source_id 外键", "schema_version": 1, "event_id": "act-014", "event_type": "evidence_registered", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:10.500Z", "node": "researcher", "task_id": "t2-BENCH", "status": "SUCCESS", "duration_ms": 300, "metadata": {"evidence_id": "evi-bench-01", "source_id": "src-voxceleb-leaderboard", "metric": "EER 1.12%"}}, {"_stage": "【任务完成】", "_annotation": "t2-BENCH 执行圆满完成", "schema_version": 1, "event_id": "act-015", "event_type": "task_completed", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:11.000Z", "node": "researcher", "task_id": "t2-BENCH", "status": "SUCCESS", "duration_ms": 6500, "metadata": {"worker": "researcher_worker_1"}}, {"_stage": "【证据注册】", "_annotation": "t3 注册注意力层消融实验证据", "schema_version": 1, "event_id": "act-016", "event_type": "evidence_registered", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:11.500Z", "node": "researcher", "task_id": "t3-ABLATION", "status": "SUCCESS", "duration_ms": 400, "metadata": {"evidence_id": "evi-ablation-01", "source_id": "src-conformer-ablation", "finding": "去除多头自注意力层导致性能下降 28%"}}, {"_stage": "【任务完成】", "_annotation": "t3-ABLATION 执行圆满完成", "schema_version": 1, "event_id": "act-017", "event_type": "task_completed", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:12.000Z", "node": "researcher", "task_id": "t3-ABLATION", "status": "SUCCESS", "duration_ms": 7400, "metadata": {"worker": "researcher_worker_2"}}, {"_stage": "【汇聚任务就绪启动】", "_annotation": "Scheduler 检测到 t2 和 t3 均已完成，将汇聚任务 t4 派发执行", "schema_version": 1, "event_id": "act-018", "event_type": "task_started", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:12.300Z", "node": "scheduler", "task_id": "t4-SYNTHESIS", "status": "RUNNING", "duration_ms": 150, "metadata": {"dependencies_resolved": ["t2-BENCH", "t3-ABLATION"]}}, {"_stage": "【汇聚任务完成】", "_annotation": "t4 综合对比分析完成，产出综合性结论", "schema_version": 1, "event_id": "act-019", "event_type": "task_completed", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:14.500Z", "node": "researcher", "task_id": "t4-SYNTHESIS", "status": "SUCCESS", "duration_ms": 2200, "metadata": {"produced_claims": 3}}, {"_stage": "【状态归约与声明推导】", "_annotation": "Aggregator 汇聚 4 任务成果，ID Reducer 覆写去重，推导 3 条 Claim", "schema_version": 1, "event_id": "act-020", "event_type": "aggregation", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:15.200Z", "node": "aggregator", "task_id": "", "status": "SUCCESS", "duration_ms": 700, "metadata": {"total_sources": 4, "total_evidences": 7, "claims_derived": 3}}, {"_stage": "【红队质检审查】", "_annotation": "Review 节点核验 3 条声明，所有数据均有实验与文献支撑，无漏洞", "schema_version": 1, "event_id": "act-021", "event_type": "review_issue", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:16.000Z", "node": "review", "task_id": "", "status": "SUCCESS", "duration_ms": 800, "metadata": {"issues_found": 0, "verdict": "CLEAN"}}, {"_stage": "【终审裁决】", "_annotation": "Judge 确认质检全绿，裁决放行转入 Compiler 编译成文", "schema_version": 1, "event_id": "act-022", "event_type": "judge_decision", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:16.400Z", "node": "judge", "task_id": "", "status": "SUCCESS", "duration_ms": 400, "metadata": {"decision": "COMPILE", "stagnant_rounds": 0}}, {"_stage": "【引文角标校验】", "_annotation": "Compiler 验证 3 条 Claim 绑定的 7 条证据外键均有效存在", "schema_version": 1, "event_id": "act-023", "event_type": "citation_verified", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:17.100Z", "node": "compiler", "task_id": "", "status": "SUCCESS", "duration_ms": 700, "metadata": {"citations_verified": 3, "all_supported": true}}, {"_stage": "【最终成果交付】", "_annotation": "渲染标准 Markdown 研报与角标并交付给终端用户", "schema_version": 1, "event_id": "act-024", "event_type": "ai_message", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:18.100Z", "node": "agent", "task_id": "", "status": "SUCCESS", "duration_ms": 1000, "metadata": {"content": "## 语音大模型前沿架构对比与消融实验综合调研报告\n\n1. **架构基础**：现代语音大模型普遍采用 Conformer 或混合时延卷积结构以融合局部与全局时序特征 [1]。\n2. **基准性能**：在 VoxCeleb 说话人验证排行榜中，采用预训练大底模微调的架构取得了 EER 1.12% 的前沿性能 [2]。\n3. **消融分析**：多头自注意力机制（MHSA）对长程上下文建模起决定性作用，消融测试表明移除自注意力层会导致 EER 恶化约 28% [3]。\n\n### 参考文献\n[1] Gulati et al. (2020). Conformer: Convolution-augmented Transformer for Speech Recognition.\n[2] VoxCeleb Leaderboard (2023). Fine-tuned SpeechFoundation Benchmarks.\n[3] Speech Transformer Ablation Studies (2022)."}}, {"_stage": "【会话成功收口】", "_annotation": "全流程执行完毕，记录总耗时 18.2s，状态 SUCCESS", "schema_version": 1, "event_id": "act-025", "event_type": "run_end", "run_id": "run-active-9002", "thread_id": "active-sim", "timestamp": "2026-09-27T14:30:18.200Z", "node": "agent", "task_id": "", "status": "SUCCESS", "duration_ms": 18200, "metadata": {"total_tasks": 4, "completed_tasks": 4, "failed_tasks": 0}}], "report_content": "<h3>语音大模型前沿架构对比与消融实验综合调研报告</h3>\n<p>1. <strong>架构基础</strong>：现代语音大模型普遍采用 Conformer 或混合时延卷积结构以融合局部与全局时序特征 <b style='color:var(--accent); cursor:pointer;' onclick='focusEvidence(\"evi-fact-01\")'>[1]</b>。</p>\n<p>2. <strong>基准性能</strong>：在 VoxCeleb 说话人验证排行榜中，采用预训练大底模微调的架构取得了 EER 1.12% 的前沿性能 <b style='color:var(--accent); cursor:pointer;' onclick='focusEvidence(\"evi-bench-01\")'>[2]</b>。</p>\n<p>3. <strong>消融分析</strong>：多头自注意力机制（MHSA）对长程上下文建模起决定性作用，消融测试表明移除自注意力层会导致 EER 恶化约 28% <b style='color:var(--accent); cursor:pointer;' onclick='focusEvidence(\"evi-ablation-01\")'>[3]</b>。</p>\n<hr style='margin:16px 0; border:none; border-top:1px solid var(--border);'>\n<h4 style='font-size:13px; color:var(--muted); margin-bottom:8px;'>参考文献与溯源支撑 (Verified References):</h4>\n<div style='font-size:12px; color:#475569; display:flex; flex-direction:column; gap:6px;'>\n  <div><strong>[1]</strong> Gulati et al. (2020). <em>Conformer: Convolution-augmented Transformer for Speech Recognition</em>. (关联证据: <code>evi-fact-01</code> · 状态: <code>SUPPORTED</code>)</div>\n  <div><strong>[2]</strong> VoxCeleb Leaderboard (2023). <em>Fine-tuned SpeechFoundation Benchmarks</em>. (关联证据: <code>evi-bench-01</code> · 状态: <code>SUPPORTED</code>)</div>\n  <div><strong>[3]</strong> Speech Transformer Ablation Studies (2022). <em>Multi-Head Attention Impact in ASR</em>. (关联证据: <code>evi-ablation-01</code> · 状态: <code>SUPPORTED</code>)</div>\n</div>"}, "run-sim-8891": {"run_id": "run-sim-8891", "title": "对比 x-vector 与 ECAPA-TDNN 架构及性能", "query": "对比 x-vector 与 ECAPA-TDNN 的模型架构及识别性能差异", "status": "SUCCESS", "duration": "15.6s", "tasks_summary": "3 任务完成 (经历 1 轮红队发难与局部重开自愈)", "evidence_count": "5 篇切片", "citation_status": "100% 支撑 (2条声明核验通过)", "pipeline_stages": [{"id": "stage-1", "name": "1. SOP 规划", "role": "Planner", "desc": "拆解 Mechanism 与 Comparison 任务链", "status": "COMPLETED", "time": "0.9s", "icon": "📋"}, {"id": "stage-2", "name": "2. 调度执行", "role": "Scheduler", "desc": "派发执行 t1-ARCH", "status": "COMPLETED", "time": "0.2s", "icon": "⚡"}, {"id": "stage-3", "name": "3. 证据检索", "role": "Researcher", "desc": "双跳 RAG 混合检索捕获 5 篇证据", "status": "COMPLETED", "time": "5.2s", "icon": "🔍"}, {"id": "stage-4", "name": "4. 状态归约", "role": "Aggregator", "desc": "ID Reducer 归约，推导 2 条 Claim", "status": "COMPLETED", "time": "1.3s", "icon": "🧩"}, {"id": "stage-5", "name": "5. 审查与自愈", "role": "Review & Repair", "desc": "发现弱证据漏洞 ➔ 局部重开 t2-PERF-R1 补足证据", "status": "REOPENED", "time": "4.5s", "icon": "🔄"}, {"id": "stage-6", "name": "6. 终审放行", "role": "Judge & Compiler", "desc": "复审合格，校验引文并放行成文", "status": "COMPLETED", "time": "1.2s", "icon": "📄"}], "dag_tasks": [{"task_id": "t1-ARCH", "name": "时延卷积与通道注意力调研", "stage_tag": "Step 1: 机制拆解", "task_type": "MECHANISM", "status": "COMPLETED", "duration_ms": 3800, "priority": 1, "worker": "researcher_worker_0", "produced": "产出 3 篇核心证据", "summary": "调研 ECAPA-TDNN 的 Squeeze-and-Excitation 机制", "dependencies": []}, {"task_id": "t2-PERF", "name": "VoxCeleb EER 性能初测", "stage_tag": "Step 2: 性能比对 (初测)", "task_type": "COMPARISON", "status": "FAILED", "duration_ms": 2100, "priority": 2, "worker": "researcher_worker_1", "produced": "弱证据 (缺少测试集拆分说明)", "summary": "被 Review 拦截判定为弱证据漏洞，下发局部重开", "dependencies": ["t1-ARCH"]}, {"task_id": "t2-PERF-R1", "name": "VoxCeleb 协议细分补全 (自愈任务)", "stage_tag": "Step 2R: 局部自愈", "task_type": "COMPARISON", "status": "COMPLETED", "duration_ms": 1200, "priority": 2, "worker": "researcher_worker_1", "produced": "补齐 VoxCeleb1-O 划分证据", "summary": "精确补全测试集划分协议，成功自愈，复审通过", "dependencies": ["t1-ARCH"]}, {"task_id": "t3-SYNTH", "name": "架构对比总结成文", "stage_tag": "Step 3: 汇聚成文", "task_type": "SURVEY", "status": "COMPLETED", "duration_ms": 1800, "priority": 3, "worker": "synthesizer_agent", "produced": "2 条无懈可击声明", "summary": "最终裁决放行成文交付", "dependencies": ["t2-PERF-R1"]}], "rag_hops": [{"iteration": 1, "task_id": "t1-ARCH", "gap": "缺失原始 x-vector 统计池化层参数实现", "query": "ECAPA-TDNN architecture Squeeze-and-Excitation", "hits": "8 篇粗排 / Top1: 0.912", "status": "INSUFFICIENT", "action": "TRIGGER_HOP_2"}, {"iteration": 2, "task_id": "t1-ARCH", "gap": "无 (已查全统计池化层时序上下文参数)", "query": "x-vector statistical pooling layer temporal context", "hits": "5 篇粗排 / Top1: 0.887", "status": "SUFFICIENT", "action": "STOP"}], "events": [{"_stage": "【阶段一：用户交互与会话初始化】", "_annotation": "用户在终端敲击回车发送科研问题，系统分配唯一的 run_id 和 thread_id，标志会话生命周期开始。", "schema_version": 1, "event_id": "evt-0001", "event_type": "run_start", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:00.000Z", "node": "agent", "task_id": "", "status": "RUNNING", "duration_ms": 0, "metadata": {"query": "对比 x-vector 与 ECAPA-TDNN 的模型架构及识别性能差异", "user_id": "researcher_01"}}, {"_stage": "【阶段一：主循环准备意图识别】", "_annotation": "Agent ReAct 主循环将历史上下文与用户提问打包为输入，准备调用大语言模型进行意图分类与工具判定。", "schema_version": 1, "event_id": "evt-0002", "event_type": "llm_input", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:00.120Z", "node": "agent", "task_id": "", "status": "RUNNING", "duration_ms": 12, "metadata": {"message_count": 2, "has_system_prompt": true, "has_entity_ledger": true}}, {"_stage": "【阶段一：判定启动垂直领域子图】", "_annotation": "LLM 识别到这是一个典型的多维度科研对比问题，普通单轮检索无法解决，输出 tool_calls 触发多智能体调研图。", "schema_version": 1, "event_id": "evt-0003", "event_type": "tool_call", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:01.350Z", "node": "agent", "task_id": "", "status": "SUCCESS", "duration_ms": 1230, "metadata": {"tool": "research_pipeline", "args": {"topic": "x-vector vs ECAPA-TDNN", "sop_type": "COMPARISON"}}}, {"_stage": "【阶段二：SOP 拆解与任务 DAG 生成】", "_annotation": "Planner 节点依据 COMPARISON SOP 契约，将总主题拆解为带有依赖拓扑的结构化任务图（DAG）。", "schema_version": 1, "event_id": "evt-0004", "event_type": "task_created", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:02.100Z", "node": "planner", "task_id": "t1-ARCH", "status": "SUCCESS", "duration_ms": 750, "metadata": {"task_type": "MECHANISM", "objective": "调研两者时延卷积与通道注意力机制差异", "dependencies": []}}, {"_stage": "【阶段二：生成有依赖关系的下游任务】", "_annotation": "Planner 拆解出性能测试任务，声明其逻辑上需要依赖架构和基准事实的完备。", "schema_version": 1, "event_id": "evt-0005", "event_type": "task_created", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:02.200Z", "node": "planner", "task_id": "t2-PERF", "status": "SUCCESS", "duration_ms": 100, "metadata": {"task_type": "COMPARISON", "objective": "调研两者在 VoxCeleb1/2 数据集上的 EER 性能指标", "dependencies": ["t1-ARCH"]}}, {"_stage": "【阶段二：调度器并发派发任务】", "_annotation": "Scheduler 扫描 DAG，发现 t1-ARCH 无前置依赖（就绪），利用 LangGraph Send API 异步发车派发给 Researcher。", "schema_version": 1, "event_id": "evt-0006", "event_type": "task_started", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:02.400Z", "node": "scheduler", "task_id": "t1-ARCH", "status": "RUNNING", "duration_ms": 200, "metadata": {"action": "send_to_worker", "worker": "researcher_worker_0"}}, {"_stage": "【阶段三：RAG 混合召回（第一跳）】", "_annotation": "负责 t1-ARCH 的 Researcher 启动微观检索，调用本地向量库与 BM25 进行双路粗排并以 RRF (k=60) 融合。", "schema_version": 1, "event_id": "evt-0007", "event_type": "rag_retrieval", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:03.500Z", "node": "researcher", "task_id": "t1-ARCH", "status": "SUCCESS", "duration_ms": 1100, "metadata": {"query": "ECAPA-TDNN architecture Squeeze-and-Excitation", "dense_hits": 10, "sparse_hits": 10, "fused_candidates": 8}}, {"_stage": "【阶段三：Cross-Encoder 二次精排】", "_annotation": "候选文档被送入 bge-reranker-v2-m3 远端接口进行打分，截取 Top-3 最高相关性切片以防上下文噪音。", "schema_version": 1, "event_id": "evt-0008", "event_type": "rerank", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:03.850Z", "node": "researcher", "task_id": "t1-ARCH", "status": "SUCCESS", "duration_ms": 350, "metadata": {"model": "bge-reranker-v2-m3", "top1_score": 0.912, "retained_chunks": 3}}, {"_stage": "【阶段三：多跳推演与 Gap 暴露】", "_annotation": "决策模型对账发现查到了 ECAPA 细节，但对比基准 x-vector 的帧级池化机制尚未完整，判定不足并触发第二跳补检索。", "schema_version": 1, "event_id": "evt-0009", "event_type": "multi_hop_iteration", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:04.900Z", "node": "researcher", "task_id": "t1-ARCH", "status": "SUCCESS", "duration_ms": 1050, "metadata": {"iteration": 1, "is_sufficient": false, "information_gain": true, "gap": "缺失原始 x-vector 统计池化层 (Statistical Pooling) 的参数实现", "next_query": "x-vector statistical pooling layer temporal context"}}, {"_stage": "【阶段三：证据注册与外键锁定】", "_annotation": "第二跳检索补足信息后，Researcher 将客观原文切片注册为 Evidence，并强制挂载来源网址的 source_id 外键。", "schema_version": 1, "event_id": "evt-0010", "event_type": "evidence_registered", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:06.200Z", "node": "researcher", "task_id": "t1-ARCH", "status": "SUCCESS", "duration_ms": 300, "metadata": {"evidence_id": "evi-9901", "source_id": "src-snyder-2018", "quote_snippet": "In the standard x-vector architecture, frame-level features are aggregated using statistical pooling..."}}, {"_stage": "【阶段四：并发状态归约与推导结论】", "_annotation": "Aggregator 收集所有并发节点数据，通过 ID-based Reducer 覆写去重，并生成初步 Claim（挂载所依赖的证据 ID 数组）。", "schema_version": 1, "event_id": "evt-0011", "event_type": "aggregation", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:07.500Z", "node": "aggregator", "task_id": "", "status": "SUCCESS", "duration_ms": 1300, "metadata": {"total_sources": 3, "total_evidences": 5, "generated_claims": 2}}, {"_stage": "【阶段四：红队质检审查发难】", "_annotation": "Review 审查节点核查生成的结论，发现声称性能提升的数据缺乏具体的测试集拆分说明，判定存在弱证据漏洞。", "schema_version": 1, "event_id": "evt-0012", "event_type": "review_issue", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:08.800Z", "node": "review", "task_id": "", "status": "FAILED", "duration_ms": 1300, "metadata": {"issue_type": "WEAK_EVIDENCE", "target_claim_id": "clm-02", "description": "ECAPA-TDNN 的 EER 降幅缺少 VoxCeleb1-O 还是 VoxCeleb1-E 的具体协议划分证据"}}, {"_stage": "【阶段四：局部修复与下游状态级联重置】", "_annotation": "Repair 节点不下推翻全图，而是局部新建补救任务 t2-PERF-R1，并将关联下游节点标记为 REOPENED 强制局部刷新。", "schema_version": 1, "event_id": "evt-0013", "event_type": "task_reopened", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:09.100Z", "node": "repair", "task_id": "t2-PERF-R1", "status": "REOPENED", "duration_ms": 300, "metadata": {"parent_task": "t2-PERF", "repair_round": 1, "reopened_nodes": ["aggregator", "review"]}}, {"_stage": "【阶段五：终审判定放行成文】", "_annotation": "补救任务执行完毕后二次质检合格，Judge 节点评估无停滞死循环（stagnant_rounds=0），裁决放行转入 Compiler 成文。", "schema_version": 1, "event_id": "evt-0014", "event_type": "judge_decision", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:13.400Z", "node": "judge", "task_id": "", "status": "SUCCESS", "duration_ms": 400, "metadata": {"decision": "COMPILE", "stagnant_rounds": 0, "resolved_issues_count": 1}}, {"_stage": "【阶段五：引文编号程序化对账】", "_annotation": "Compiler 节点读取 SUPPORTED 状态的声明，确定性比对外键完整性，确认无空对空编造，准备渲染标准引用角标。", "schema_version": 1, "event_id": "evt-0015", "event_type": "citation_verified", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:14.200Z", "node": "compiler", "task_id": "", "status": "SUCCESS", "duration_ms": 800, "metadata": {"verified_citations": 2, "citation_ids": ["[1]", "[2]"], "has_unsupported_claims": false}}, {"_stage": "【阶段五：最终成果交付与生命周期终结】", "_annotation": "面向人类用户的最终回答生成，带有确凿的 [1][2] 引文和文末 References；系统触发 run_end 记录总耗时与资源。", "schema_version": 1, "event_id": "evt-0016", "event_type": "ai_message", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:15.500Z", "node": "agent", "task_id": "", "status": "SUCCESS", "duration_ms": 1300, "metadata": {"content_length": 650, "content": "## x-vector 与 ECAPA-TDNN 架构及性能对比\n\n1. **核心架构**：x-vector 基于标准 TDNN 与统计池化层 [1]；而 ECAPA-TDNN 引入了 Squeeze-and-Excitation 通道注意力机制与一维扩张卷积 [2]。\n2. **识别性能**：在 VoxCeleb1-O 评估集上，ECAPA-TDNN 的等错误率 (EER) 相比 x-vector 降低约 30% [2]。\n\n### 参考文献\n[1] Snyder et al. (2018). X-vectors: Robust DNN Embeddings for Speaker Recognition.\n[2] Desplanques et al. (2020). ECAPA-TDNN: Emphasized Channel Attention..."}}, {"_stage": "【阶段五：会话成功收口】", "_annotation": "全局运行生命周期结束，统计总耗时 15.6 秒，状态标记为 SUCCESS。", "schema_version": 1, "event_id": "evt-0017", "event_type": "run_end", "run_id": "run-sim-8891", "thread_id": "trace-sim-01", "timestamp": "2026-09-27T10:00:15.600Z", "node": "agent", "task_id": "", "status": "SUCCESS", "duration_ms": 15600, "metadata": {"total_nodes_executed": 8, "repaired_rounds": 1}}], "report_content": "<h3>x-vector 与 ECAPA-TDNN 架构及性能对比研报</h3>\n<p>1. <strong>核心架构</strong>：x-vector 基于标准 TDNN 与统计池化层 <b style='color:var(--accent); cursor:pointer;'>[1]</b>；而 ECAPA-TDNN 引入了 Squeeze-and-Excitation (SE) 通道注意力机制与一维扩张卷积 <b style='color:var(--accent); cursor:pointer;'>[2]</b>。</p>\n<p>2. <strong>识别性能</strong>：在 VoxCeleb1-O 评估集上，ECAPA-TDNN 等错误率相比 x-vector 相对降低约 30% <b style='color:var(--accent); cursor:pointer;'>[2]</b>。</p>\n<hr style='margin:16px 0; border:none; border-top:1px solid var(--border);'>\n<h4 style='font-size:13px; color:var(--muted); margin-bottom:8px;'>参考文献与溯源支撑 (Verified References):</h4>\n<div style='font-size:12px; color:#475569; display:flex; flex-direction:column; gap:6px;'>\n  <div><strong>[1]</strong> Snyder et al. (2018). <em>X-vectors: Robust DNN Embeddings for Speaker Recognition</em>. (关联证据: <code>evi-9901</code> · 状态: <code>SUPPORTED</code>)</div>\n  <div><strong>[2]</strong> Desplanques et al. (2020). <em>ECAPA-TDNN: Emphasized Channel Attention</em>. (关联证据: <code>evi-9902</code> · 状态: <code>SUPPORTED</code>)</div>\n</div>"}};
 let currentRunId = "run-active-9002";
 let currentDagTasks = [];
 
@@ -283,7 +618,7 @@ function selectRun(rid) {
   if (!run) return;
 
   // 更新 KPI 与 Header
-  document.getElementById('detail-title').innerText = '会话运行全景详情 - ' + run.run_id;
+  document.getElementById('detail-title').innerText = '会话运行全景详情 - ' + run.run_id + ' (' + run.title + ')';
   const badge = document.getElementById('detail-badge');
   badge.innerText = run.status;
   badge.className = 'badge ' + run.status;
@@ -293,17 +628,42 @@ function selectRun(rid) {
   document.getElementById('kpi-evidences').innerText = run.evidence_count;
   document.getElementById('kpi-citation').innerText = run.citation_status;
 
-  // 渲染 DAG 拓扑图
-  renderDagGraph(run.dag_tasks);
+  // 渲染顶层流水线阶梯
+  renderPipelineStepper(run.pipeline_stages || []);
+
+  // 渲染 DAG 拓扑流程图
+  renderDagGraph(run.dag_tasks || []);
 
   // 渲染 RAG 多跳表格
-  renderRagTable(run.rag_hops);
+  renderRagTable(run.rag_hops || []);
 
   // 渲染事件流
-  renderTimeline(run.events);
+  renderTimeline(run.events || []);
 
   // 渲染报告
-  document.getElementById('report-box').innerHTML = run.report_content;
+  document.getElementById('report-box').innerHTML = run.report_content || '';
+}
+
+function renderPipelineStepper(stages) {
+  const container = document.getElementById('pipeline-stepper-container');
+  if (!stages || !stages.length) {
+    container.innerHTML = '<div style="color:var(--muted); font-size:12px;">无阶段记录</div>';
+    return;
+  }
+  let html = '';
+  stages.forEach(st => {
+    html += `
+      <div class="pipeline-step ${st.status}">
+        <div class="pipeline-step-top">
+          <span class="pipeline-step-name">${st.icon || '📌'} ${st.name}</span>
+          <span class="pipeline-step-role">${st.role}</span>
+        </div>
+        <div class="pipeline-step-desc">${st.desc}</div>
+        <div class="pipeline-step-time">${st.time} · <span class="badge ${st.status}" style="font-size:9px; padding:0 4px;">${st.status}</span></div>
+      </div>
+    `;
+  });
+  container.innerHTML = html;
 }
 
 function renderDagGraph(tasks) {
@@ -351,8 +711,8 @@ function renderDagGraph(tasks) {
   });
 
   const nodePositions = {};
-  const colWidth = 240;
-  const rowHeight = 100;
+  const colWidth = 270;
+  const rowHeight = 135;
   const maxRank = Math.max(...Object.keys(columns).map(Number));
 
   let maxColCount = 1;
@@ -360,21 +720,21 @@ function renderDagGraph(tasks) {
     maxColCount = Math.max(maxColCount, columns[r].length);
   });
 
-  const canvasWidth = Math.max(700, (maxRank + 1) * colWidth + 60);
-  const canvasHeight = Math.max(340, maxColCount * rowHeight + 80);
+  const canvasWidth = Math.max(820, (maxRank + 1) * colWidth + 60);
+  const canvasHeight = Math.max(380, maxColCount * rowHeight + 90);
 
   // 3. 计算节点坐标
   Object.keys(columns).forEach(r => {
     const colList = columns[r];
-    const x = 30 + r * colWidth;
-    const startY = 40 + ((maxColCount - colList.length) * rowHeight) / 2;
+    const x = 40 + r * colWidth;
+    const startY = 60 + ((maxColCount - colList.length) * rowHeight) / 2;
     colList.forEach((t, idx) => {
       const y = startY + idx * rowHeight;
-      nodePositions[t.task_id] = { x, y, width: 175, height: 62, task: t };
+      nodePositions[t.task_id] = { x, y, width: 210, height: 95, task: t };
     });
   });
 
-  // 4. 贝塞尔曲线边
+  // 4. 生成带流向光效的平滑贝塞尔曲线边
   let svgPaths = '';
   tasks.forEach(t => {
     if (t.dependencies) {
@@ -386,38 +746,57 @@ function renderDagGraph(tasks) {
           const y1 = from.y + from.height / 2;
           const x2 = to.x;
           const y2 = to.y + to.height / 2;
-          const cx1 = x1 + (x2 - x1) * 0.5;
-          const cx2 = x2 - (x2 - x1) * 0.5;
-          svgPaths += `<path d="M ${x1} ${y1} C ${cx1} ${y1}, ${cx2} ${y2}, ${x2} ${y2}"
-                             fill="none" stroke="#94a3b8" stroke-width="2.2" marker-end="url(#dag-arrow)" />`;
+          const cx1 = x1 + (x2 - x1) * 0.45;
+          const cx2 = x2 - (x2 - x1) * 0.45;
+          const d = `M ${x1} ${y1} C ${cx1} ${y1}, ${cx2} ${y2}, ${x2} ${y2}`;
+          // 底层加宽轨道线 + 上层动画流动虚线
+          svgPaths += `
+            <path d="${d}" class="dag-edge-bg" />
+            <path d="${d}" class="dag-edge-flow" marker-end="url(#dag-arrow)" />
+          `;
         }
       });
     }
   });
 
-  // 5. 渲染
+  // 5. 渲染列头阶段标识
+  let stageHeaders = '';
+  const stageNames = ["阶段一：基础基石", "阶段二：并发调研", "阶段三：汇聚收敛", "阶段四：终审交付"];
+  Object.keys(columns).forEach(r => {
+    const colX = 40 + r * colWidth + 30;
+    const name = stageNames[r] || ('阶段 ' + (Number(r) + 1));
+    stageHeaders += `<div class="dag-stage-col-header" style="left:${colX}px;">${name}</div>`;
+  });
+
   let html = `
+    ${stageHeaders}
     <svg class="dag-svg-layer" width="${canvasWidth}" height="${canvasHeight}">
       <defs>
         <marker id="dag-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-          <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#94a3b8" />
+          <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#3b82f6" />
         </marker>
       </defs>
       ${svgPaths}
     </svg>`;
 
+  // 6. 渲染各节点卡片
   Object.values(nodePositions).forEach(item => {
     const t = item.task;
     html += `
       <div class="dag-node-item ${t.status}" id="node-${t.task_id}"
            style="left:${item.x}px; top:${item.y}px;" onclick="clickDagNode('${t.task_id}')">
-        <div class="dag-node-title">
-          <span>${t.task_id}</span>
-          <span class="badge ${t.status}" style="font-size:9px; padding:1px 5px;">${t.status}</span>
+        <div class="dag-node-tag">
+          <span>${t.stage_tag || t.task_id}</span>
+          <span class="badge ${t.status}" style="font-size:9px; padding:0 5px;">${t.status}</span>
         </div>
-        <div class="dag-node-sub">
-          <span>${t.task_type || 'TASK'}</span>
-          <span>${t.duration_ms ? ' · ' + t.duration_ms + 'ms' : (t.status === 'RUNNING' ? ' · 执行中...' : '')}</span>
+        <div class="dag-node-title">${t.name || t.task_id}</div>
+        <div class="dag-node-worker">
+          <span>🤖 ${t.worker || 'Worker'}</span>
+          <span>·</span>
+          <span>${t.duration_ms ? t.duration_ms + 'ms' : '-'}</span>
+        </div>
+        <div class="dag-node-output">
+          <span>${t.produced || '已生成证据'}</span>
         </div>
       </div>`;
   });
@@ -438,15 +817,21 @@ function clickDagNode(tid) {
 
   drawer.style.display = 'block';
   drawer.innerHTML = `
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-      <h3 style="font-size:13px; font-weight:700; color:#1e293b;">任务节点详情: ${task.task_id}</h3>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+      <h3 style="font-size:13.5px; font-weight:700; color:#1e293b;">
+        <span>📌 节点工单详情: ${task.task_id} - ${task.name || ''}</span>
+      </h3>
       <span class="badge ${task.status}">${task.status}</span>
     </div>
-    <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:10px;">
+    <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; font-size:12px; background:#f8fafc; padding:10px 12px; border-radius:6px; margin-bottom:10px;">
       <div><span style="color:var(--muted)">任务类型:</span> <b>${task.task_type || '-'}</b></div>
-      <div><span style="color:var(--muted)">优先级:</span> <b>${task.priority || 0}</b></div>
-      <div><span style="color:var(--muted)">执行状态:</span> <b>${task.status}</b></div>
-      <div><span style="color:var(--muted)">前置依赖:</span> <b>${(task.dependencies && task.dependencies.length) ? task.dependencies.join(', ') : '无 (根节点)'}</b></div>
+      <div><span style="color:var(--muted)">执行主体 (Worker):</span> <b>${task.worker || '-'}</b></div>
+      <div><span style="color:var(--muted)">执行耗时:</span> <b>${task.duration_ms ? task.duration_ms + 'ms' : '-'}</b></div>
+      <div><span style="color:var(--muted)">前置依赖节点:</span> <b>${(task.dependencies && task.dependencies.length) ? task.dependencies.join(', ') : '无 (根基石节点)'}</b></div>
+    </div>
+    <div style="font-size:12.5px; color:#334155; line-height:1.6;">
+      <div><strong>任务摘要：</strong>${task.summary || '-'}</div>
+      <div style="margin-top:4px;"><strong>产出资产：</strong><span style="color:var(--green); font-weight:600;">${task.produced || '-'}</span></div>
     </div>
   `;
 }
@@ -454,14 +839,15 @@ function clickDagNode(tid) {
 function renderRagTable(hops) {
   const tbody = document.getElementById('rag-table-body');
   if (!hops || !hops.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="empty">无 RAG 检索事件</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--muted); text-align:center; padding:20px;">无 RAG 检索事件</td></tr>';
     return;
   }
   let html = '';
   for (const h of hops) {
     html += `<tr>
       <td><strong>第 ${h.iteration} 跳</strong></td>
-      <td>${h.gap || '-'}</td>
+      <td><code>${h.task_id || '-'}</code></td>
+      <td style="color:#b45309; font-weight:500;">${h.gap || '-'}</td>
       <td><code>${h.query || '-'}</code></td>
       <td>${h.hits}</td>
       <td><span class="badge ${h.status}">${h.status}</span></td>
@@ -473,7 +859,7 @@ function renderRagTable(hops) {
 function renderTimeline(events) {
   const container = document.getElementById('events-timeline');
   if (!events || !events.length) {
-    container.innerHTML = '<div class="empty">无事件记录</div>';
+    container.innerHTML = '<div style="color:var(--muted); text-align:center; padding:20px;">无事件记录</div>';
     return;
   }
   let html = '';
@@ -487,6 +873,7 @@ function renderTimeline(events) {
       else if (e.metadata.issues) metaSummary = 'Issues: ' + JSON.stringify(e.metadata.issues);
       else if (e.metadata.decision) metaSummary = 'Decision: ' + e.metadata.decision;
       else if (e.metadata.objective) metaSummary = 'Objective: ' + e.metadata.objective;
+      else if (e._annotation) metaSummary = e._annotation;
     }
     
     html += `<div class="tl-item">
@@ -507,11 +894,11 @@ function switchTab(tabId, btn) {
   document.getElementById(tabId).classList.add('active');
 }
 
-function refreshData() {
-  alert('已重新扫描 logs/*.jsonl，同步载入全部活跃与历史 Runs！');
+function focusEvidence(eviId) {
+  alert('定位到证据外键: ' + eviId + '，可在全链路事件流与知识库中反查对应 PDF 篇章与切片。');
 }
 
-// 默认激活未完成态 run-active-9002
+// 默认激活闭环会话
 selectRun("run-active-9002");
 </script>
 </body>
