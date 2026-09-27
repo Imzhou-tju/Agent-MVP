@@ -16,7 +16,6 @@
     --green: #10b981;
     --amber: #f59e0b;
     --card-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
-    --hover-shadow: 0 6px 16px -2px rgba(37,99,235,0.1), 0 2px 6px -1px rgba(0,0,0,0.06);
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -32,7 +31,7 @@
     overflow-x: hidden;
   }
 
-  /* 顶部状态与控制栏 (白底) */
+  /* 顶部控制栏 */
   .control-header {
     width: 100%;
     max-width: 1040px;
@@ -107,7 +106,7 @@
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   button.primary:hover { background: #1d4ed8; }
 
-  /* 宏观流水线阶段条 (白底) */
+  /* 宏观流水线阶段条 */
   .stepper-container {
     width: 100%;
     max-width: 1040px;
@@ -144,7 +143,7 @@
   .step-title { font-weight: 700; color: #1e293b; margin-bottom: 2px; }
   .step-sub { font-size: 10px; color: var(--muted); }
 
-  /* 核心 DAG 画布 (浅灰网格背景，与前端 100% 一致) */
+  /* 核心 DAG 画布 */
   .dag-stage-box {
     width: 100%;
     max-width: 1040px;
@@ -159,6 +158,20 @@
     box-shadow: inset 0 1px 3px rgba(0,0,0,0.03);
   }
 
+  /* 阶段列头标记 */
+  .stage-col-indicator {
+    position: absolute;
+    top: 12px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    background: #f1f5f9;
+    padding: 2px 10px;
+    border-radius: 12px;
+    border: 1px solid #cbd5e1;
+    z-index: 1;
+  }
+
   /* SVG 连线层 */
   .svg-layer {
     position: absolute;
@@ -170,7 +183,16 @@
     pointer-events: none;
   }
 
-  /* 动态线条生长与流动 (白底配色) */
+  /* 边组包装容器：默认完全隐藏，严禁提前显示任何边或悬空箭头 */
+  .edge-group {
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  .edge-group.visible {
+    opacity: 1;
+  }
+
+  /* 动态线条生长与流动 */
   .flow-track {
     stroke: #e2e8f0;
     stroke-width: 5px;
@@ -182,7 +204,7 @@
     stroke-width: 2.2px;
     fill: none;
     stroke-linecap: round;
-    transition: stroke-dashoffset 1s ease-out;
+    transition: stroke-dashoffset 0.9s cubic-bezier(0.4, 0, 0.2, 1);
   }
   .flow-active {
     stroke-dasharray: 6 5;
@@ -193,7 +215,7 @@
     to { stroke-dashoffset: 0; }
   }
 
-  /* 节点卡片样式 (白底卡片) */
+  /* 节点卡片样式 */
   .dag-node {
     position: absolute;
     width: 215px;
@@ -201,11 +223,11 @@
     border: 1.5px solid var(--border);
     border-radius: 10px;
     padding: 12px 14px;
-    z-index: 2;
+    z-index: 3;
     box-shadow: var(--card-shadow);
     opacity: 0;
     transform: scale(0.85) translateY(10px);
-    transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: all 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
   .dag-node.visible {
     opacity: 1;
@@ -268,7 +290,7 @@
     gap: 4px;
   }
 
-  /* 底部日志与成果预览 (白底) */
+  /* 底部面板 */
   .bottom-deck {
     width: 100%;
     max-width: 1040px;
@@ -306,7 +328,7 @@
   .log-time { color: var(--muted); }
   .log-tag { color: var(--accent); font-weight: 600; }
 
-  /* 报告成文卡片 (浅灰内卡片) */
+  /* 报告成文卡片 */
   .report-snippet {
     background: #f8fafc;
     border: 1px solid var(--border);
@@ -346,7 +368,7 @@
 </head>
 <body>
 
-  <!-- 控制与状态头 (亮白主题) -->
+  <!-- 控制与状态头 -->
   <div class="control-header">
     <div class="header-left">
       <div class="header-logo">C</div>
@@ -396,9 +418,14 @@
     </div>
   </div>
 
-  <!-- 核心动态 DAG 画布 (白底网格背景) -->
+  <!-- 核心动态 DAG 画布 -->
   <div class="dag-stage-box" id="dag-stage">
-    <!-- SVG 连线流层 -->
+    <!-- 列头阶段标识 -->
+    <div class="stage-col-indicator" style="left: 105px;">阶段一：基础基石</div>
+    <div class="stage-col-indicator" style="left: 485px;">阶段二：并发调研</div>
+    <div class="stage-col-indicator" style="left: 825px;">阶段三：汇聚收敛</div>
+
+    <!-- SVG 连线流层：所有边默认 opacity: 0，严禁提前渲染 -->
     <svg class="svg-layer" viewBox="0 0 1040 440">
       <defs>
         <marker id="arrow" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
@@ -409,21 +436,29 @@
         </marker>
       </defs>
 
-      <!-- 边 1: t1 -> t2 (上分支) -->
-      <path id="track-1" d="M 275 220 C 370 220, 370 125, 435 125" class="flow-track" />
-      <path id="edge-1" d="M 275 220 C 370 220, 370 125, 435 125" class="flow-grow" stroke-dasharray="260" stroke-dashoffset="260" marker-end="url(#arrow)" />
+      <!-- 边组 1: t1 -> t2 (上分支) 初始完全隐藏 -->
+      <g id="group-edge-1" class="edge-group">
+        <path d="M 275 220 C 370 220, 370 125, 435 125" class="flow-track" />
+        <path id="edge-1" d="M 275 220 C 370 220, 370 125, 435 125" class="flow-grow" stroke-dasharray="260" stroke-dashoffset="260" marker-end="url(#arrow)" />
+      </g>
 
-      <!-- 边 2: t1 -> t3 (下分支) -->
-      <path id="track-2" d="M 275 220 C 370 220, 370 315, 435 315" class="flow-track" />
-      <path id="edge-2" d="M 275 220 C 370 220, 370 315, 435 315" class="flow-grow" stroke-dasharray="260" stroke-dashoffset="260" marker-end="url(#arrow)" />
+      <!-- 边组 2: t1 -> t3 (下分支) 初始完全隐藏 -->
+      <g id="group-edge-2" class="edge-group">
+        <path d="M 275 220 C 370 220, 370 315, 435 315" class="flow-track" />
+        <path id="edge-2" d="M 275 220 C 370 220, 370 315, 435 315" class="flow-grow" stroke-dasharray="260" stroke-dashoffset="260" marker-end="url(#arrow)" />
+      </g>
 
-      <!-- 边 3: t2 -> t4 (上汇流) -->
-      <path id="track-3" d="M 655 125 C 720 125, 720 220, 775 220" class="flow-track" />
-      <path id="edge-3" d="M 655 125 C 720 125, 720 220, 775 220" class="flow-grow" stroke-dasharray="240" stroke-dashoffset="240" marker-end="url(#arrow)" />
+      <!-- 边组 3: t2 -> t4 (上汇流) 初始完全隐藏 -->
+      <g id="group-edge-3" class="edge-group">
+        <path d="M 655 125 C 720 125, 720 220, 775 220" class="flow-track" />
+        <path id="edge-3" d="M 655 125 C 720 125, 720 220, 775 220" class="flow-grow" stroke-dasharray="240" stroke-dashoffset="240" marker-end="url(#arrow)" />
+      </g>
 
-      <!-- 边 4: t3 -> t4 (下汇流) -->
-      <path id="track-4" d="M 655 315 C 720 315, 720 220, 775 220" class="flow-track" />
-      <path id="edge-4" d="M 655 315 C 720 315, 720 220, 775 220" class="flow-grow" stroke-dasharray="240" stroke-dashoffset="240" marker-end="url(#arrow)" />
+      <!-- 边组 4: t3 -> t4 (下汇流) 初始完全隐藏 -->
+      <g id="group-edge-4" class="edge-group">
+        <path d="M 655 315 C 720 315, 720 220, 775 220" class="flow-track" />
+        <path id="edge-4" d="M 655 315 C 720 315, 720 220, 775 220" class="flow-grow" stroke-dasharray="240" stroke-dashoffset="240" marker-end="url(#arrow)" />
+      </g>
     </svg>
 
     <!-- 节点 1: 基石任务 t1-FACT -->
@@ -500,7 +535,7 @@
     <div class="timeline-progress" id="timeline-progress-bar"></div>
   </div>
 
-  <!-- 底部面板：实时审计事件与最终成文渲染 (白底风格) -->
+  <!-- 底部面板 -->
   <div class="bottom-deck">
     <!-- 实时事件流 -->
     <div class="deck-card">
@@ -535,37 +570,41 @@ let isPlaying = false;
 let playSpeed = 1.0;
 let timer = null;
 
-// 动态脚本剧本帧 (Keyframes)
+// 严格遵循因果律的剧本帧：先有源节点完成 -> 边向外射出生长 -> 到达终点 -> 目标节点诞生！
 const scriptEvents = [
   {
-    time: 0.5,
+    time: 0.2,
     action: () => {
+      // 1. SOP 规划激活，Step 1 基石节点率先诞生
       setStepActive(0);
       showNode('t1', 'RUNNING', '执行中 (0.5s)');
-      appendLog('task_created', 'Planner 拆解出菱形 DAG: t1-FACT');
-      setStatus('SOP 规划完成 · 正在执行 Step 1 基础调研');
+      appendLog('task_created', 'Planner 拆解出菱形 DAG: 产生基石任务 t1-FACT');
+      setStatus('SOP 规划完成 · Step 1 基础事实调研启动');
     }
   },
   {
     time: 1.8,
     action: () => {
+      // 2. t1 完成！此时才允许边向外射出生长！
       setStepDone(0);
       setStepActive(1);
       completeNode('t1', '2200ms', '产出 3 篇核心文献切片');
       appendLog('task_completed', 't1-FACT 基础共识形成，注册证据切片');
-      growEdge('edge-1');
-      growEdge('edge-2');
-      setStatus('并发调度激活 · Send API 异步发车 t2 与 t3');
+      // 此时开启边 1 和边 2 的显示，并开始向右生长动画
+      growEdgeGroup(1);
+      growEdgeGroup(2);
+      setStatus('并发调度激活 · 向下游分支发射依赖数据流');
     }
   },
   {
-    time: 2.8,
+    time: 2.7,
     action: () => {
+      // 3. 边生长到达终点，并发节点 t2 和 t3 诞生！
       setStepDone(1);
       setStepActive(2);
       showNode('t2', 'RUNNING', '执行中 (双路检索)');
       showNode('t3', 'RUNNING', '执行中 (消融分析)');
-      appendLog('task_started', '并发执行: t2-BENCH (Worker-1) & t3-ABLATION (Worker-2)');
+      appendLog('task_started', '依赖就绪，并发派发: t2-BENCH (Worker-1) & t3-ABLATION (Worker-2)');
       setStatus('多跳证据检索中 · 向量+BM25粗排与残差盲区探测');
     }
   },
@@ -579,19 +618,22 @@ const scriptEvents = [
   {
     time: 5.6,
     action: () => {
+      // 4. t2 与 t3 同时完成！此时才允许汇流边向中心生长！
       completeNode('t2', '6500ms', '产出基准 EER 1.12% 证据');
       completeNode('t3', '7400ms', '产出 MHSA 恶化 28% 证据');
       setStepDone(2);
       setStepActive(3);
-      appendLog('task_completed', '双并发分支圆满执行完毕，依赖全部就绪');
-      growEdge('edge-3');
-      growEdge('edge-4');
-      setStatus('并发分支闭环 · 汇聚任务 t4 就绪发车');
+      appendLog('task_completed', '双并发分支圆满执行完毕，所有前置依赖就绪');
+      // 开启边 3 和边 4 的显示，并开始向中心生长汇流
+      growEdgeGroup(3);
+      growEdgeGroup(4);
+      setStatus('并发分支闭环 · 汇流连线向中心汇聚');
     }
   },
   {
-    time: 6.8,
+    time: 6.5,
     action: () => {
+      // 5. 汇流边到达目标，汇聚节点 t4 诞生！
       showNode('t4', 'RUNNING', '归约推导中...');
       appendLog('task_started', 't4-SYNTHESIS 启动：ID Reducer 去重去冲突');
       setStatus('状态归约推导 · 综合基准与消融形成三条声明');
@@ -600,6 +642,7 @@ const scriptEvents = [
   {
     time: 7.8,
     action: () => {
+      // 6. t4 完成，红队审查
       completeNode('t4', '2200ms', '推导 3 条已验证声明');
       setStepDone(3);
       setStepActive(4);
@@ -610,6 +653,7 @@ const scriptEvents = [
   {
     time: 8.8,
     action: () => {
+      // 7. Compiler 校验引文并成文
       setStepDone(4);
       setStepActive(5);
       appendLog('citation_verified', 'Compiler 外键核验：3 条声明证据外键 100% 存在');
@@ -625,6 +669,7 @@ const scriptEvents = [
   {
     time: 9.8,
     action: () => {
+      // 8. 闭环收口
       setStepDone(5);
       appendLog('run_end', '全链路执行成功收口，总耗时 18.2s，状态 SUCCESS');
       setStatus('执行圆满完成 · 菱形并发拓扑全链路闭环', true);
@@ -699,22 +744,30 @@ function resetTimeline() {
   document.getElementById('main-status-text').innerText = '准备就绪 · 等待播放';
   document.getElementById('play-text').innerText = '开始演进';
 
+  // 1. 清空所有节点卡片
   ['t1', 't2', 't3', 't4'].forEach(id => {
     const el = document.getElementById('node-' + id);
     el.className = 'dag-node';
     document.getElementById('asset-' + id).style.display = 'none';
   });
 
-  ['edge-1', 'edge-2', 'edge-3', 'edge-4'].forEach(eid => {
-    const el = document.getElementById(eid);
-    el.style.strokeDashoffset = el.getAttribute('stroke-dasharray');
-    el.classList.remove('flow-active');
-  });
+  // 2. 彻底隐藏所有边组及其悬空箭头，绝不允许提前暴露
+  for (let i = 1; i <= 4; i++) {
+    const group = document.getElementById('group-edge-' + i);
+    if (group) group.classList.remove('visible');
+    const edge = document.getElementById('edge-' + i);
+    if (edge) {
+      edge.style.strokeDashoffset = edge.getAttribute('stroke-dasharray');
+      edge.classList.remove('flow-active');
+    }
+  }
 
+  // 3. 重置阶段步进器
   for (let i = 0; i < 6; i++) {
     document.getElementById('step-' + i).className = 'step-card';
   }
 
+  // 4. 重置报告与日志
   document.getElementById('report-container').style.opacity = '0.4';
   document.getElementById('report-status').innerText = '待成文...';
   document.getElementById('report-status').style.color = 'var(--muted)';
@@ -748,12 +801,17 @@ function completeNode(id, dur, asset) {
   assetEl.style.display = 'flex';
 }
 
-function growEdge(eid) {
-  const el = document.getElementById(eid);
-  el.style.strokeDashoffset = '0';
+function growEdgeGroup(index) {
+  const group = document.getElementById('group-edge-' + index);
+  const edge = document.getElementById('edge-' + index);
+  if (!group || !edge) return;
+  // 显露边组（此时才显示底轨和箭头）
+  group.classList.add('visible');
+  // 触发笔刷向前生长延伸动画
+  edge.style.strokeDashoffset = '0';
   setTimeout(() => {
-    el.classList.add('flow-active');
-  }, 1000);
+    edge.classList.add('flow-active');
+  }, 900);
 }
 
 function setStepActive(idx) {
@@ -789,10 +847,11 @@ function setStatus(text, success = false) {
   }
 }
 
-// 自动起播
+// 页面加载后立即初试并自动起播
+resetTimeline();
 setTimeout(() => {
   play();
-}, 600);
+}, 400);
 </script>
 </body>
 </html>
