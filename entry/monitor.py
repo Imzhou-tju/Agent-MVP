@@ -1,6 +1,13 @@
 import time
 import json
 import os
+import sys
+
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 from rich.console import Console
 from rich.theme import Theme
 from rich.panel import Panel
