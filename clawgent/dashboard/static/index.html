@@ -582,53 +582,97 @@ function sampleData() {
     });
   };
 
-  /* --- Run A：成功，含一次修复与两轮多跳 --- */
+  /* --- Run A：成功，钻石型 Fork-Join DAG，含并行调度、质检修复与两轮多跳 --- */
   const a = []; a.runId = "demo-run-001"; a.threadId = "demo";
   E(a, 0, 0, "run_start", "planner", "", "SUCCESS", { query: "比较 x-vector 与 ECAPA-TDNN 在说话人验证上的方法原理与性能" });
   E(a, 260, 260, "plan_gate", "planner", "", "SUCCESS", { decision: "ALLOW_WITH_WARNINGS", sop_type: "COMPARISON", repair_count: 1 });
+  
+  // 4 个任务构成分叉-汇聚 DAG：t1 -> (t2, t3 并发) -> t4
   E(a, 300, 0, "task_created", "planner", "t1", "SUCCESS", { task_type: "BACKGROUND", dependencies: [], priority: 1 });
-  E(a, 310, 0, "task_created", "planner", "t2", "SUCCESS", { task_type: "MECHANISM", dependencies: ["t1"], priority: 1 });
-  E(a, 320, 0, "task_created", "planner", "t3", "SUCCESS", { task_type: "COMPARISON", dependencies: ["t2"], priority: 2 });
+  E(a, 310, 0, "task_created", "planner", "t2", "SUCCESS", { task_type: "COMPARISON", dependencies: ["t1"], priority: 2 });
+  E(a, 320, 0, "task_created", "planner", "t3", "SUCCESS", { task_type: "MECHANISM", dependencies: ["t1"], priority: 2 });
+  E(a, 330, 0, "task_created", "planner", "t4", "SUCCESS", { task_type: "SYNTHESIS", dependencies: ["t2", "t3"], priority: 3 });
   E(a, 340, 0, "node_end", "planner", "", "SUCCESS", { node: "planner" });
 
+  // 调度 Round 0: 启动根基石任务 t1
   E(a, 360, 20, "task_ready", "scheduler", "t1", "SUCCESS", { round_no: 0 });
   E(a, 390, 15, "task_started", "scheduler", "t1", "SUCCESS", {});
-  E(a, 420, 30, "task_ready", "scheduler", "t2", "SUCCESS", { round_no: 1 });
+  E(a, 420, 0, "node_start", "researcher", "", "SUCCESS", { node: "researcher" });
+  E(a, 460, 380, "rag_retrieval", "researcher", "t1", "SUCCESS", { academic: 6, web: 4, local: 3 });
+  E(a, 860, 50, "evidence_registered", "researcher", "t1", "SUCCESS", { evidence_id: "e1", source_id: "s1", source_type: "ACADEMIC", verification_status: "VERIFIED", claim_id: "c1", task_id: "t1" });
+  E(a, 920, 520, "task_completed", "researcher", "t1", "SUCCESS", {});
+  E(a, 940, 0, "node_end", "researcher", "", "SUCCESS", { node: "researcher" });
 
-  E(a, 460, 0, "node_start", "researcher", "", "SUCCESS", { node: "researcher" });
-  E(a, 500, 420, "rag_retrieval", "researcher", "t1", "SUCCESS", { academic: 6, web: 4, local: 3 });
-  E(a, 950, 380, "multi_hop_iteration", "researcher", "t1", "SUCCESS", { iteration: 1, gap: "缺少 EER 与 minDCF 的公开基准数值", next_query: "x-vector ECAPA-TDNN EER minDCF VoxCeleb benchmark", new_evidence_count: 4, is_sufficient: false, action: "TRIGGER_NEXT_HOP" });
-  E(a, 1360, 350, "multi_hop_iteration", "researcher", "t1", "SUCCESS", { iteration: 2, gap: "缺少统计池化层的机制差异说明", next_query: "ECAPA-TDNN attentive statistics pooling channel attention", new_evidence_count: 3, is_sufficient: true, action: "STOP", stop_reason: "GAP_CLOSED" });
-  E(a, 1720, 60, "evidence_registered", "researcher", "t1", "SUCCESS", { evidence_id: "e1", source_id: "s1", source_type: "ACADEMIC", verification_status: "VERIFIED", claim_id: "c1", task_id: "t1" });
-  E(a, 1790, 60, "evidence_registered", "researcher", "t2", "SUCCESS", { evidence_id: "e2", source_id: "s2", source_type: "ACADEMIC", verification_status: "VERIFIED", claim_id: "c2", task_id: "t2" });
-  E(a, 1880, 640, "task_completed", "researcher", "t1", "SUCCESS", {});
-  E(a, 2540, 510, "task_completed", "researcher", "t2", "SUCCESS", {});
-  E(a, 3060, 0, "node_end", "researcher", "", "SUCCESS", { node: "researcher" });
+  // 调度 Round 1: t1 闭环，并发派发分支 t2 与 t3 给不同智能体
+  E(a, 960, 20, "task_ready", "scheduler", "t2", "SUCCESS", { round_no: 1 });
+  E(a, 970, 20, "task_ready", "scheduler", "t3", "SUCCESS", { round_no: 1 });
+  E(a, 1000, 15, "task_started", "scheduler", "t2", "SUCCESS", {});
+  E(a, 1010, 15, "task_started", "scheduler", "t3", "SUCCESS", {});
 
-  E(a, 3100, 240, "aggregation", "aggregator", "", "SUCCESS", { source_count: 2, evidence_count: 2, claim_by_status: { SUPPORTED: 2 } });
-  E(a, 3380, 180, "review_issue", "review", "", "SUCCESS", { issue_count: 1, category: "CITATION_MISSING" });
-  E(a, 3600, 300, "repair", "repair", "", "SUCCESS", { added: 0, removed: 0, reopened: 1, reason: "补全引用外键" });
-  E(a, 3900, 0, "task_reopened", "repair", "t3", "SUCCESS", {});
-  E(a, 3980, 420, "task_completed", "researcher", "t3", "SUCCESS", {});
-  E(a, 4420, 160, "judge_decision", "judge", "", "SUCCESS", { decision: "COMPILE", unfinished: 0, stagnant: false });
-  E(a, 4600, 200, "citation_verified", "compiler", "", "SUCCESS", { verified: 2, total: 2 });
-  E(a, 4820, 0, "run_end", "compiler", "", "SUCCESS", { termination_reason: "任务全部完成" });
+  // Researcher 并发执行分支 1 (t2) 与分支 2 (t3)
+  E(a, 1030, 0, "node_start", "researcher", "", "SUCCESS", { node: "researcher" });
+  E(a, 1080, 420, "rag_retrieval", "researcher", "t2", "SUCCESS", { academic: 5, web: 3, local: 2 });
+  E(a, 1520, 380, "multi_hop_iteration", "researcher", "t2", "SUCCESS", { iteration: 1, gap: "缺少 EER 与 minDCF 的公开基准数值", next_query: "x-vector ECAPA-TDNN EER minDCF VoxCeleb benchmark", new_evidence_count: 4, is_sufficient: false, action: "TRIGGER_NEXT_HOP" });
+  E(a, 1920, 60, "evidence_registered", "researcher", "t2", "SUCCESS", { evidence_id: "e2", source_id: "s2", source_type: "ACADEMIC", verification_status: "VERIFIED", claim_id: "c2", task_id: "t2" });
+  E(a, 2000, 480, "task_completed", "researcher", "t2", "SUCCESS", {});
 
-  /* --- Run B：运行中，停在检索阶段 --- */
+  E(a, 1100, 350, "rag_retrieval", "researcher", "t3", "SUCCESS", { academic: 4, web: 2, local: 1 });
+  E(a, 1480, 360, "multi_hop_iteration", "researcher", "t3", "SUCCESS", { iteration: 2, gap: "缺少统计池化层的机制差异说明", next_query: "ECAPA-TDNN attentive statistics pooling channel attention", new_evidence_count: 3, is_sufficient: true, action: "STOP", stop_reason: "GAP_CLOSED" });
+  E(a, 1860, 50, "evidence_registered", "researcher", "t3", "SUCCESS", { evidence_id: "e3", source_id: "s3", source_type: "ACADEMIC", verification_status: "VERIFIED", claim_id: "c3", task_id: "t3" });
+  E(a, 2150, 450, "task_completed", "researcher", "t3", "SUCCESS", {});
+  E(a, 2620, 0, "node_end", "researcher", "", "SUCCESS", { node: "researcher" });
+
+  // 汇聚调度 Round 2: 前置 t2 与 t3 均闭环，启动汇聚任务 t4
+  E(a, 2650, 20, "task_ready", "scheduler", "t4", "SUCCESS", { round_no: 2 });
+  E(a, 2680, 15, "task_started", "scheduler", "t4", "SUCCESS", {});
+  E(a, 2720, 240, "aggregation", "aggregator", "t4", "SUCCESS", { source_count: 3, evidence_count: 3, claim_by_status: { SUPPORTED: 3 } });
+
+  // 质检与修复：Reviewer 发现引用缺失，触发 Repair reopen t3 补全
+  E(a, 3000, 180, "review_issue", "review", "t4", "SUCCESS", { issue_count: 1, category: "CITATION_MISSING" });
+  E(a, 3200, 280, "repair", "repair", "t3", "SUCCESS", { added: 0, removed: 0, reopened: 1, reason: "补全注意力机制对比的外键引用" });
+  E(a, 3500, 0, "task_reopened", "repair", "t3", "SUCCESS", {});
+  E(a, 3580, 420, "task_completed", "researcher", "t3", "SUCCESS", {});
+
+  // 终审与成文
+  E(a, 4050, 160, "task_completed", "aggregator", "t4", "SUCCESS", {});
+  E(a, 4250, 160, "judge_decision", "judge", "", "SUCCESS", { decision: "COMPILE", unfinished: 0, stagnant: false });
+  E(a, 4450, 220, "citation_verified", "compiler", "", "SUCCESS", { verified: 3, total: 3 });
+  E(a, 4820, 0, "run_end", "compiler", "", "SUCCESS", { termination_reason: "多智能体分支任务全部闭环" });
+
+  /* --- Run B：运行中，钻石拓扑异步并发推进 --- */
   const b = []; b.runId = "run-active-9002"; b.threadId = "demo";
   E(b, 0, 0, "run_start", "planner", "", "SUCCESS", { query: "前沿多模态大模型架构机制与长程注意力对比实证" });
   E(b, 300, 300, "plan_gate", "planner", "", "SUCCESS", { decision: "ALLOW", sop_type: "MECHANISM", repair_count: 0 });
+  
+  // 4 个任务构成分叉-汇聚 DAG
   E(b, 340, 0, "task_created", "planner", "t1", "SUCCESS", { task_type: "BACKGROUND", dependencies: [], priority: 1 });
-  E(b, 350, 0, "task_created", "planner", "t2", "SUCCESS", { task_type: "MECHANISM", dependencies: ["t1"], priority: 1 });
-  E(b, 360, 0, "task_created", "planner", "t3", "SUCCESS", { task_type: "COMPARISON", dependencies: ["t2"], priority: 2 });
+  E(b, 350, 0, "task_created", "planner", "t2", "SUCCESS", { task_type: "COMPARISON", dependencies: ["t1"], priority: 2 });
+  E(b, 360, 0, "task_created", "planner", "t3", "SUCCESS", { task_type: "MECHANISM", dependencies: ["t1"], priority: 2 });
+  E(b, 370, 0, "task_created", "planner", "t4", "SUCCESS", { task_type: "SYNTHESIS", dependencies: ["t2", "t3"], priority: 3 });
+
+  // 调度 t1 完成
   E(b, 380, 25, "task_ready", "scheduler", "t1", "SUCCESS", { round_no: 0 });
   E(b, 410, 18, "task_started", "scheduler", "t1", "SUCCESS", {});
-  E(b, 440, 0, "node_start", "researcher", "", "RUNNING", { node: "researcher" });
-  E(b, 500, 610, "rag_retrieval", "researcher", "t1", "SUCCESS", { academic: 8, web: 5, local: 2 });
-  E(b, 1150, 520, "multi_hop_iteration", "researcher", "t1", "SUCCESS", { iteration: 1, gap: "缺少长程注意力的显存占用对比", next_query: "long context attention memory footprint comparison", new_evidence_count: 5, is_sufficient: false, action: "TRIGGER_NEXT_HOP" });
-  E(b, 1700, 40, "evidence_registered", "researcher", "t1", "SUCCESS", { evidence_id: "e1", source_id: "s1", source_type: "ACADEMIC", verification_status: "PENDING", claim_id: "c1", task_id: "t1" });
-  E(b, 1780, 380, "task_completed", "researcher", "t1", "SUCCESS", {});
-  E(b, 2180, 12, "task_ready", "scheduler", "t2", "SUCCESS", { round_no: 1 });
+  E(b, 440, 0, "node_start", "researcher", "", "SUCCESS", { node: "researcher" });
+  E(b, 500, 480, "rag_retrieval", "researcher", "t1", "SUCCESS", { academic: 8, web: 5, local: 2 });
+  E(b, 1000, 40, "evidence_registered", "researcher", "t1", "SUCCESS", { evidence_id: "e1", source_id: "s1", source_type: "ACADEMIC", verification_status: "VERIFIED", claim_id: "c1", task_id: "t1" });
+  E(b, 1080, 380, "task_completed", "researcher", "t1", "SUCCESS", {});
+
+  // 并发分发：t2 已完成，t3 正在进行中，t4 处于待执行
+  E(b, 1480, 20, "task_ready", "scheduler", "t2", "SUCCESS", { round_no: 1 });
+  E(b, 1490, 20, "task_ready", "scheduler", "t3", "SUCCESS", { round_no: 1 });
+  E(b, 1520, 18, "task_started", "scheduler", "t2", "SUCCESS", {});
+  E(b, 1540, 18, "task_started", "scheduler", "t3", "SUCCESS", {});
+
+  // t2 完成
+  E(b, 1580, 360, "rag_retrieval", "researcher", "t2", "SUCCESS", { academic: 4, web: 2, local: 1 });
+  E(b, 1960, 40, "evidence_registered", "researcher", "t2", "SUCCESS", { evidence_id: "e2", source_id: "s2", source_type: "ACADEMIC", verification_status: "VERIFIED", claim_id: "c2", task_id: "t2" });
+  E(b, 2020, 160, "task_completed", "researcher", "t2", "SUCCESS", {});
+
+  // t3 处于 RUNNING 进行中
+  E(b, 2180, 0, "node_start", "researcher", "", "RUNNING", { node: "researcher" });
+  E(b, 2220, 520, "multi_hop_iteration", "researcher", "t3", "SUCCESS", { iteration: 1, gap: "缺少长程注意力的显存占用对比", next_query: "long context attention memory footprint comparison", new_evidence_count: 5, is_sufficient: false, action: "TRIGGER_NEXT_HOP" });
+  E(b, 2760, 40, "evidence_registered", "researcher", "t3", "SUCCESS", { evidence_id: "e3", source_id: "s3", source_type: "ACADEMIC", verification_status: "PENDING", claim_id: "c3", task_id: "t3" });
 
   /* --- Run C：失败，检索阶段熔断 --- */
   const c = []; c.runId = "run-sim-8891"; c.threadId = "demo";
