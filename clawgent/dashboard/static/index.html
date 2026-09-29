@@ -3,1127 +3,1676 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ClawAgent Research 多智能体全景可观测看板</title>
+<title>ClawAgent · 多智能体全景可观测看板</title>
 <style>
-  :root {
-    --bg: #f8fafc;
-    --panel: #ffffff;
-    --border: #e2e8f0;
-    --text: #0f172a;
-    --muted: #64748b;
-    --accent: #2563eb;
-    --accent-light: #eff6ff;
-    --red: #ef4444;
-    --green: #10b981;
-    --amber: #f59e0b;
-    --purple: #8b5cf6;
-    --card-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
-    --hover-shadow: 0 6px 16px -2px rgba(37,99,235,0.1), 0 2px 6px -1px rgba(0,0,0,0.06);
-  }
+/* ============================================================
+   设计令牌：浅色为基准，颜色只承载状态语义
+   ============================================================ */
+:root {
+  --canvas:      #f6f7f9;
+  --surface:     #ffffff;
+  --surface-alt: #fbfcfd;
+  --line:        #e5e7eb;
+  --line-strong: #d0d7de;
 
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    font-size: 13.5px;
-    line-height: 1.5;
-  }
+  --ink:   #1f2328;
+  --ink-2: #57606a;
+  --ink-3: #848d97;
 
-  header {
-    background: var(--panel);
-    border-bottom: 1px solid var(--border);
-    padding: 12px 24px;
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    position: sticky;
-    top: 0;
-    z-index: 20;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.02);
-  }
-  header h1 {
-    font-size: 16px;
-    font-weight: 700;
-    color: #1e293b;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .logo-icon {
-    width: 24px;
-    height: 24px;
-    background: linear-gradient(135deg, #2563eb, #3b82f6);
-    color: #fff;
-    border-radius: 6px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 13px;
-    font-weight: 800;
-  }
-  .tag {
-    background: #ecfdf5;
-    color: #059669;
-    font-size: 11px;
-    padding: 2px 9px;
-    border-radius: 6px;
-    font-weight: 600;
-    border: 1px solid #a7f3d0;
-  }
-  header .controls {
-    margin-left: auto;
-    display: flex;
-    gap: 10px;
-    align-items: center;
-  }
-  select, button {
-    padding: 6px 12px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: #fff;
-    font-size: 13px;
-    cursor: pointer;
-    transition: all 0.15s;
-    font-weight: 500;
-  }
-  select:hover, button:hover { border-color: var(--accent); color: var(--accent); }
-  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-  button.primary:hover { background: #1d4ed8; color: #fff; }
+  --brand:      #2f6feb;
+  --brand-wash: #e8f0fe;
 
-  main {
-    padding: 20px 24px;
-    display: grid;
-    grid-template-columns: 320px 1fr;
-    gap: 20px;
-    max-width: 1560px;
-    margin: 0 auto;
-    min-height: calc(100vh - 65px);
-  }
+  /* 状态色：前景用于文字/图标，底用于标签背景，边用于描边 */
+  --ok-fg:#1a7f37;  --ok-bg:#e8f5ec;   --ok-line:#b7e0c4;
+  --run-fg:#0969da; --run-bg:#e7f2fe;  --run-line:#b6d7f8;
+  --warn-fg:#9a6700;--warn-bg:#fdf3d8; --warn-line:#f0d98a;
+  --err-fg:#c0222e; --err-bg:#fdecec;  --err-line:#f5c2c4;
+  --idle-fg:#57606a;--idle-bg:#f0f2f4; --idle-line:#dcdfe3;
 
-  .panel {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 18px;
-    box-shadow: var(--card-shadow);
-  }
-  .panel h2 {
-    font-size: 14px;
-    font-weight: 700;
-    color: #334155;
-    margin-bottom: 14px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
+  --radius: 8px;
+  --shadow: 0 1px 2px rgba(31,35,40,.04), 0 1px 1px rgba(31,35,40,.03);
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "PingFang SC", "Microsoft YaHei", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
 
-  /* 会话列表 */
-  #run-list {
-    max-height: calc(100vh - 110px);
-    overflow-y: auto;
-  }
-  .run-item {
-    padding: 12px 14px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    margin-bottom: 10px;
-    cursor: pointer;
-    transition: all 0.15s;
-    background: #fff;
-  }
-  .run-item:hover {
-    border-color: var(--accent);
-    transform: translateY(-1px);
-    box-shadow: var(--hover-shadow);
-  }
-  .run-item.active {
-    border-color: var(--accent);
-    background: #eff6ff;
-    border-left: 4px solid var(--accent);
-  }
-  .run-item .rid {
-    font-weight: 700;
-    font-size: 13px;
-    color: #1e293b;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .run-item .meta-query {
-    color: #1e293b;
-    font-size: 12.5px;
-    font-weight: 600;
-    margin-top: 6px;
-    line-height: 1.4;
-    word-break: break-all;
-  }
-  .run-item .meta-foot {
-    color: var(--muted);
-    font-size: 11.5px;
-    margin-top: 5px;
-    display: flex;
-    gap: 8px;
-  }
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
-  /* 状态徽章 */
-  .badge {
-    display: inline-block;
-    padding: 2px 7px;
-    border-radius: 6px;
-    font-size: 11px;
-    font-weight: 600;
-  }
-  .badge.SUCCESS, .badge.COMPLETED { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
-  .badge.RUNNING { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; animation: pulse 1.8s infinite; }
-  .badge.REOPENED { background: #ffedd5; color: #c2410c; border: 1px solid #fed7aa; }
-  .badge.FAILED { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
-  .badge.PENDING { background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }
-  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+body {
+  font-family: var(--font);
+  background: var(--canvas);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
 
-  /* 核心 KPI 卡片 */
-  .stat-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
-    margin-bottom: 20px;
-  }
-  .stat {
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 12px 14px;
-    background: #fafafa;
-  }
-  .stat .k { color: var(--muted); font-size: 12px; font-weight: 500; }
-  .stat .v { font-size: 18px; font-weight: 800; margin-top: 3px; color: #0f172a; }
+/* 数字统一等宽，便于纵向比对 */
+.num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
 
-  /* 宏观流水线阶段步进器 (Macro Pipeline Stepper) */
-  .pipeline-stepper-box {
-    background: #f8fafc;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 14px 16px;
-    margin-bottom: 20px;
-  }
-  .pipeline-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 12px;
-  }
-  .pipeline-header-title {
-    font-size: 12.5px;
-    font-weight: 700;
-    color: #334155;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .pipeline-flow {
-    display: grid;
-    grid-template-columns: repeat(6, 1fr);
-    gap: 10px;
-    position: relative;
-  }
-  .pipeline-step {
-    background: #fff;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px;
-    position: relative;
-    transition: all 0.2s;
-  }
-  .pipeline-step:hover {
-    border-color: var(--accent);
-    box-shadow: var(--card-shadow);
-  }
-  .pipeline-step.COMPLETED { border-top: 3px solid var(--green); }
-  .pipeline-step.REOPENED { border-top: 3px solid var(--amber); }
-  .pipeline-step.RUNNING { border-top: 3px solid var(--accent); animation: pulse 2s infinite; }
-  .pipeline-step.PENDING { border-top: 3px solid var(--border); }
-  .pipeline-step-top {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 4px;
-  }
-  .pipeline-step-name {
-    font-size: 12px;
-    font-weight: 700;
-    color: #1e293b;
-  }
-  .pipeline-step-role {
-    font-size: 10.5px;
-    color: var(--accent);
-    font-weight: 600;
-    background: var(--accent-light);
-    padding: 1px 5px;
-    border-radius: 4px;
-  }
-  .pipeline-step-desc {
-    font-size: 11px;
-    color: var(--muted);
-    margin-top: 4px;
-    line-height: 1.4;
-  }
-  .pipeline-step-time {
-    font-size: 10.5px;
-    color: #94a3b8;
-    margin-top: 4px;
-    text-align: right;
-  }
+/* ============================================================
+   顶部栏
+   ============================================================ */
+.topbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  padding: 0 20px;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+.brand { display: flex; align-items: center; gap: 9px; font-weight: 650; font-size: 14px; }
+.brand-mark {
+  width: 24px; height: 24px; border-radius: 6px;
+  background: var(--brand); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 800; letter-spacing: -.5px;
+}
+.brand-sub { color: var(--ink-3); font-weight: 400; font-size: 12px; }
 
-  /* 选项卡导航 */
-  .tabbar {
-    display: flex;
-    gap: 6px;
-    margin-bottom: 16px;
-    border-bottom: 1px solid var(--border);
-  }
-  .tabbar button {
-    background: none;
-    border: none;
-    color: var(--muted);
-    padding: 9px 16px;
-    border-radius: 0;
-    border-bottom: 2px solid transparent;
-    font-weight: 600;
-    font-size: 13px;
-  }
-  .tabbar button.on {
-    color: var(--accent);
-    border-bottom-color: var(--accent);
-  }
-  .tab-content { display: none; }
-  .tab-content.active { display: block; }
+.topbar-spacer { margin-left: auto; }
+.search-wrap { position: relative; }
+.search-wrap input {
+  width: 230px; height: 30px;
+  padding: 0 10px 0 28px;
+  border: 1px solid var(--line-strong); border-radius: 6px;
+  font-size: 12.5px; font-family: var(--font); color: var(--ink);
+  background: var(--surface);
+}
+.search-wrap input:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-wash); }
+.search-wrap .icon { position: absolute; left: 9px; top: 7px; color: var(--ink-3); font-size: 12px; }
 
-  /* DAG 拓扑图画板 */
-  .dag-container {
-    position: relative;
-    min-height: 420px;
-    background: #fafafa;
-    background-image: radial-gradient(#e2e8f0 1.2px, transparent 1.2px);
-    background-size: 20px 20px;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    overflow: auto;
-    padding: 24px;
-  }
-  .dag-canvas {
-    position: relative;
-    min-width: 800px;
-    min-height: 360px;
-  }
-  .dag-svg-layer {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-    z-index: 1;
-  }
+.btn {
+  height: 30px; padding: 0 11px;
+  border: 1px solid var(--line-strong); border-radius: 6px;
+  background: var(--surface); color: var(--ink-2);
+  font-size: 12.5px; font-family: var(--font); font-weight: 500;
+  cursor: pointer; display: inline-flex; align-items: center; gap: 5px;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.btn:hover { background: var(--surface-alt); border-color: var(--ink-3); color: var(--ink); }
+.btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.btn-primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+.btn-primary:hover { background: #2559c4; border-color: #2559c4; color: #fff; }
 
-  /* 流动光效线条 */
-  @keyframes dagFlow {
-    from { stroke-dashoffset: 24; }
-    to { stroke-dashoffset: 0; }
-  }
-  .dag-edge-bg {
-    stroke: #e2e8f0;
-    stroke-width: 5px;
-    stroke-linecap: round;
-    fill: none;
-  }
-  .dag-edge-flow {
-    stroke: #3b82f6;
-    stroke-width: 2.2px;
-    stroke-linecap: round;
-    fill: none;
-    stroke-dasharray: 6 5;
-    animation: dagFlow 1.2s linear infinite;
-  }
+select.btn { padding-right: 6px; }
 
-  /* DAG 节点卡片 */
-  .dag-node-item {
-    position: absolute;
-    width: 210px;
-    background: #ffffff;
-    border: 1.5px solid var(--border);
-    border-radius: 10px;
-    padding: 12px 14px;
-    font-size: 12px;
-    box-shadow: var(--card-shadow);
-    cursor: pointer;
-    transition: all 0.2s;
-    z-index: 2;
-  }
-  .dag-node-item:hover {
-    transform: translateY(-3px);
-    box-shadow: var(--hover-shadow);
-  }
-  .dag-node-item.active {
-    outline: 2px solid var(--accent);
-    box-shadow: 0 0 0 4px rgba(37,99,235,0.15);
-  }
-  .dag-node-item.COMPLETED { border-color: var(--green); border-left: 5px solid var(--green); }
-  .dag-node-item.RUNNING { border-color: var(--accent); border-left: 5px solid var(--accent); animation: pulse 1.8s infinite; }
-  .dag-node-item.REOPENED { border-color: var(--amber); border-left: 5px solid var(--amber); }
-  .dag-node-item.FAILED { border-color: var(--red); border-left: 5px solid var(--red); }
-  .dag-node-item.PENDING { border-color: var(--border); border-left: 5px solid var(--border); }
-  
-  .dag-node-tag {
-    font-size: 10px;
-    font-weight: 700;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: 4px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .dag-node-title {
-    font-weight: 700;
-    font-size: 13px;
-    color: #1e293b;
-    line-height: 1.3;
-    margin-bottom: 6px;
-  }
-  .dag-node-worker {
-    font-size: 11px;
-    color: var(--muted);
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-  .dag-node-output {
-    margin-top: 6px;
-    padding-top: 6px;
-    border-top: 1px dashed var(--border);
-    font-size: 11px;
-    color: #059669;
-    font-weight: 600;
-  }
+.stamp { font-size: 11.5px; color: var(--ink-3); display: flex; align-items: center; gap: 5px; }
+.dot-live {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--ok-fg); display: inline-block;
+}
 
-  /* 阶段列头指示 */
-  .dag-stage-col-header {
-    position: absolute;
-    top: 6px;
-    font-size: 11px;
-    font-weight: 700;
-    color: #64748b;
-    background: #f1f5f9;
-    padding: 3px 10px;
-    border-radius: 12px;
-    border: 1px solid #cbd5e1;
-    text-align: center;
-  }
+/* ============================================================
+   主体骨架
+   ============================================================ */
+.layout {
+  display: grid;
+  grid-template-columns: 296px minmax(0, 1fr);
+  gap: 16px;
+  padding: 16px 20px 40px;
+  max-width: 1680px;
+  margin: 0 auto;
+  align-items: start;
+}
 
-  /* 节点下钻详情抽屉 */
-  .dag-drawer {
-    margin-top: 14px;
-    padding: 14px 18px;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    background: #ffffff;
-    box-shadow: var(--card-shadow);
-  }
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
 
-  /* 表格样式 */
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
-  th { color: var(--muted); font-weight: 600; background: #f8fafc; font-size: 12px; }
-  tr:hover td { background: #f8fafc; }
+/* ---------- 左侧 Run 列表 ---------- */
+.side { position: sticky; top: 70px; }
+.side-head {
+  padding: 11px 13px; border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.side-title { font-size: 12.5px; font-weight: 650; color: var(--ink-2); }
+.count-pill {
+  font-size: 11px; color: var(--ink-3); background: var(--idle-bg);
+  padding: 1px 7px; border-radius: 10px; font-variant-numeric: tabular-nums;
+}
 
-  /* 事件流列表 */
-  .timeline { display: flex; flex-direction: column; gap: 8px; max-height: 540px; overflow-y: auto; }
-  .tl-item {
-    display: grid;
-    grid-template-columns: 85px 120px 110px 1fr 70px;
-    gap: 12px;
-    align-items: baseline;
-    padding: 9px 12px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background: #fff;
-    font-size: 12px;
-    transition: all 0.15s;
-  }
-  .tl-item:hover { background: #f8fafc; border-color: #cbd5e1; }
-  .tl-time { color: var(--muted); font-family: monospace; font-size: 11px; }
-  .tl-node {
-    font-weight: 600;
-    color: #4338ca;
-    background: #e0e7ff;
-    padding: 2px 7px;
-    border-radius: 5px;
-    font-size: 11px;
-    width: fit-content;
-  }
-  .tl-evt { font-weight: 600; color: #1e293b; }
-  .tl-meta { color: #475569; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .tl-dur { text-align: right; color: var(--muted); font-family: monospace; font-size: 11px; }
-  .empty-box { text-align: center; padding: 40px; color: var(--muted); }
+.filters { display: flex; flex-wrap: wrap; gap: 5px; padding: 9px 13px; border-bottom: 1px solid var(--line); }
+.chip {
+  border: 1px solid var(--line-strong); background: var(--surface);
+  color: var(--ink-2); font-size: 11.5px; padding: 2px 9px;
+  border-radius: 11px; cursor: pointer; font-family: var(--font);
+  transition: all .12s;
+}
+.chip:hover { border-color: var(--ink-3); }
+.chip.on { background: var(--brand); border-color: var(--brand); color: #fff; }
+
+.run-list { max-height: calc(100vh - 210px); overflow-y: auto; }
+.run-item {
+  padding: 10px 13px; border-bottom: 1px solid var(--line);
+  cursor: pointer; border-left: 3px solid transparent;
+  transition: background .1s;
+}
+.run-item:hover { background: var(--surface-alt); }
+.run-item.on { background: var(--brand-wash); border-left-color: var(--brand); }
+.run-top { display: flex; align-items: center; gap: 7px; margin-bottom: 3px; }
+.run-id { font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); font-weight: 600; }
+.run-query {
+  font-size: 12.5px; color: var(--ink); line-height: 1.45;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; word-break: break-word;
+}
+.run-foot {
+  margin-top: 5px; display: flex; flex-wrap: wrap; gap: 9px;
+  font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums;
+}
+.run-foot span { display: inline-flex; align-items: center; gap: 3px; }
+
+/* ---------- 状态标签：颜色 + 符号，不靠颜色单独表意 ---------- */
+.tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 600; line-height: 1.6;
+  padding: 1px 7px; border-radius: 10px; border: 1px solid;
+  white-space: nowrap;
+}
+.tag .gl { font-size: 9px; }
+.tag.ok    { color: var(--ok-fg);   background: var(--ok-bg);   border-color: var(--ok-line); }
+.tag.run   { color: var(--run-fg);  background: var(--run-bg);  border-color: var(--run-line); }
+.tag.warn  { color: var(--warn-fg); background: var(--warn-bg); border-color: var(--warn-line); }
+.tag.err   { color: var(--err-fg);  background: var(--err-bg);  border-color: var(--err-line); }
+.tag.idle  { color: var(--idle-fg); background: var(--idle-bg); border-color: var(--idle-line); }
+
+/* ============================================================
+   详情区
+   ============================================================ */
+.detail { min-width: 0; }
+
+.run-head { padding: 15px 18px; border-bottom: 1px solid var(--line); }
+.run-head-top { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 7px; }
+.run-head h1 {
+  font-size: 15.5px; font-weight: 650; line-height: 1.45;
+  flex: 1; min-width: 0; word-break: break-word;
+}
+.run-head-meta {
+  display: flex; flex-wrap: wrap; gap: 6px 16px;
+  font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums;
+}
+.run-head-meta b { color: var(--ink-2); font-weight: 600; }
+.mono { font-family: var(--mono); font-size: 11.5px; }
+
+/* ---------- KPI 条 ---------- */
+.kpi-row {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  border-bottom: 1px solid var(--line);
+}
+.kpi { padding: 12px 16px; border-right: 1px solid var(--line); }
+.kpi:last-child { border-right: none; }
+.kpi-label { font-size: 11.5px; color: var(--ink-3); margin-bottom: 2px; }
+.kpi-value {
+  font-size: 19px; font-weight: 650; line-height: 1.25;
+  font-variant-numeric: tabular-nums; letter-spacing: -.2px;
+}
+.kpi-value .unit { font-size: 12px; font-weight: 500; color: var(--ink-3); margin-left: 2px; }
+.kpi-note { font-size: 11px; color: var(--ink-3); margin-top: 1px; }
+.kpi.is-ok   .kpi-value { color: var(--ok-fg); }
+.kpi.is-warn .kpi-value { color: var(--warn-fg); }
+.kpi.is-err  .kpi-value { color: var(--err-fg); }
+
+/* ---------- 阶段流水线 ---------- */
+.stages { padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.stages-head {
+  display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px;
+}
+.stages-title { font-size: 12.5px; font-weight: 650; color: var(--ink-2); }
+.stages-hint { font-size: 11px; color: var(--ink-3); }
+
+.stage-track { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+.stage {
+  flex: 1 1 0; min-width: 108px;
+  border: 1px solid var(--line); border-radius: 6px;
+  padding: 7px 9px 8px; background: var(--surface-alt);
+  position: relative;
+}
+.stage::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0;
+  width: 3px; border-radius: 6px 0 0 6px; background: var(--idle-line);
+}
+.stage.ok::before   { background: var(--ok-fg); }
+.stage.run::before  { background: var(--run-fg); }
+.stage.warn::before { background: var(--warn-fg); }
+.stage.err::before  { background: var(--err-fg); }
+.stage.idle::before { background: var(--idle-line); }
+.stage.idle { opacity: .62; }
+
+.stage-name { font-size: 11.5px; font-weight: 650; color: var(--ink); white-space: nowrap; }
+.stage-role { font-size: 10.5px; color: var(--ink-3); font-family: var(--mono); }
+.stage-foot {
+  margin-top: 5px; display: flex; align-items: center; justify-content: space-between; gap: 5px;
+  font-size: 10.5px; color: var(--ink-3); font-variant-numeric: tabular-nums;
+}
+.stage-foot .tag { flex: none; }
+
+/* ---------- Tab ---------- */
+.tabs {
+  display: flex; gap: 2px; padding: 0 18px;
+  border-bottom: 1px solid var(--line);
+}
+.tab {
+  background: none; border: none; border-bottom: 2px solid transparent;
+  padding: 9px 12px; font-size: 12.5px; font-family: var(--font);
+  color: var(--ink-3); cursor: pointer; font-weight: 550;
+  transition: color .12s;
+}
+.tab:hover { color: var(--ink-2); }
+.tab.on { color: var(--ink); border-bottom-color: var(--brand); }
+.tab:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.tab .n {
+  font-size: 10.5px; color: var(--ink-3); background: var(--idle-bg);
+  padding: 0 5px; border-radius: 8px; margin-left: 4px; font-variant-numeric: tabular-nums;
+}
+
+.pane { display: none; padding: 16px 18px; }
+.pane.on { display: block; }
+
+/* ---------- 通用表格 ---------- */
+.table-wrap { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+thead th {
+  text-align: left; font-weight: 600; font-size: 11.5px; color: var(--ink-2);
+  background: var(--surface-alt); padding: 8px 11px;
+  border-bottom: 1px solid var(--line); white-space: nowrap;
+}
+tbody td {
+  padding: 8px 11px; border-bottom: 1px solid var(--line);
+  vertical-align: top; word-break: break-word;
+}
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--surface-alt); }
+td.narrow, th.narrow { white-space: nowrap; width: 1%; }
+tbody tr.row-bad, tbody tr.row-bad:hover { background: var(--err-bg); }
+.nodedot {
+  width: 7px; height: 7px; border-radius: 50%;
+  display: inline-block; margin-right: 6px; vertical-align: -1px;
+}
+.failmark { color: var(--err-fg); font-weight: 700; margin-right: 4px; }
+.errtxt { color: var(--err-fg); font-size: 11.5px; }
+
+/* ---------- DAG ---------- */
+.dag-scroll { overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-alt); }
+.dag-scroll svg { display: block; }
+.dag-node { cursor: pointer; }
+.dag-node rect.body { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1; }
+.dag-node.on rect.body { stroke: var(--brand); stroke-width: 2; }
+.dag-node:hover rect.body { stroke: var(--brand); }
+.dag-node text { font-family: var(--font); fill: var(--ink); }
+.dag-node .n-id { font-size: 11.5px; font-weight: 650; font-family: var(--mono); }
+.dag-node .n-type { font-size: 10px; fill: var(--ink-3); }
+.dag-node .n-meta { font-size: 10px; fill: var(--ink-3); font-variant-numeric: tabular-nums; }
+.dag-edge { fill: none; stroke: var(--line-strong); stroke-width: 1.5; }
+.dag-edge.on { stroke: var(--brand); stroke-width: 2; }
+
+.dag-detail { margin-top: 12px; }
+.dag-detail-inner { padding: 13px 15px; }
+.dd-head { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; }
+.dd-head h3 { font-size: 13px; font-weight: 650; }
+.dd-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px 16px; padding: 10px 13px;
+  background: var(--surface-alt); border: 1px solid var(--line); border-radius: 6px;
+  font-size: 12px; margin-bottom: 10px;
+}
+.dd-grid dt { color: var(--ink-3); font-size: 11px; margin-bottom: 1px; }
+.dd-grid dd { color: var(--ink); font-weight: 550; word-break: break-word; }
+.dd-sum { font-size: 12.5px; color: var(--ink-2); line-height: 1.6; }
+
+/* ---------- 瀑布时间线 ---------- */
+.section-label {
+  font-size: 12px; font-weight: 650; color: var(--ink-2);
+  margin: 0 0 9px; display: flex; align-items: baseline; gap: 8px;
+}
+.section-label small { font-weight: 400; color: var(--ink-3); font-size: 11px; }
+
+.node-bars { margin-bottom: 22px; }
+.nbar { display: grid; grid-template-columns: 92px 1fr 62px; gap: 10px; align-items: center; margin-bottom: 5px; }
+.nbar-name { font-size: 11.5px; color: var(--ink-2); font-family: var(--mono); text-align: right; }
+.nbar-track { background: var(--idle-bg); border-radius: 3px; height: 15px; overflow: hidden; display: block; }
+.nbar-fill { display: block; height: 100%; border-radius: 3px; min-width: 2px; }
+.nbar-val { font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+
+.waterfall { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.wf-row {
+  display: grid; grid-template-columns: 66px 84px 1fr;
+  gap: 10px; align-items: center;
+  padding: 3px 11px; border-bottom: 1px solid var(--line);
+  font-size: 11.5px;
+}
+.wf-row:last-child { border-bottom: none; }
+.wf-row:hover { background: var(--surface-alt); }
+.wf-t { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.wf-node { font-size: 11px; font-family: var(--mono); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; }
+.wf-track { position: relative; height: 14px; }
+.wf-bar { position: absolute; top: 4px; height: 6px; border-radius: 3px; min-width: 2px; }
+.wf-tick { position: absolute; top: 3px; width: 2px; height: 8px; background: var(--line-strong); border-radius: 1px; }
+.wf-label {
+  position: absolute; top: 0; font-size: 10.5px; line-height: 14px;
+  color: var(--ink-2); white-space: nowrap;
+}
+.wf-label b { color: var(--ink-3); font-weight: 400; font-family: var(--mono); }
+.wf-axis { display: flex; justify-content: space-between; font-size: 10px; color: var(--ink-3); padding: 4px 11px; background: var(--surface-alt); border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+
+/* ---------- 检索迭代 ---------- */
+.hops { display: flex; flex-direction: column; gap: 0; }
+.hop { display: grid; grid-template-columns: 26px 1fr; gap: 12px; }
+.hop-rail { display: flex; flex-direction: column; align-items: center; }
+.hop-dot {
+  width: 22px; height: 22px; border-radius: 50%; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+  border: 1px solid;
+}
+.hop-dot.ok   { background: var(--ok-bg);   color: var(--ok-fg);   border-color: var(--ok-line); }
+.hop-dot.run  { background: var(--run-bg);  color: var(--run-fg);  border-color: var(--run-line); }
+.hop-dot.warn { background: var(--warn-bg); color: var(--warn-fg); border-color: var(--warn-line); }
+.hop-line { flex: 1; width: 1px; background: var(--line); margin: 3px 0; min-height: 12px; }
+.hop-body { padding-bottom: 16px; min-width: 0; }
+.hop-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 5px; }
+.hop-title strong { font-size: 12.5px; font-weight: 650; }
+.hop-grid { display: grid; gap: 4px; font-size: 12px; }
+.hop-field { display: grid; grid-template-columns: 78px 1fr; gap: 8px; }
+.hop-field dt { color: var(--ink-3); font-size: 11.5px; }
+.hop-field dd { color: var(--ink-2); word-break: break-word; }
+.hop-field dd code {
+  font-family: var(--mono); font-size: 11.5px; background: var(--surface-alt);
+  border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px;
+}
+
+/* ---------- 空 / 加载 / 错误 ---------- */
+.state { padding: 44px 20px; text-align: center; color: var(--ink-3); font-size: 12.5px; }
+.state .big { font-size: 13px; color: var(--ink-2); margin-bottom: 4px; font-weight: 550; }
+.skeleton { padding: 28px 18px; }
+.sk-line { height: 11px; border-radius: 4px; background: var(--idle-bg); margin-bottom: 9px; }
+.sk-line:nth-child(1) { width: 42%; height: 15px; }
+.sk-line:nth-child(3) { width: 72%; }
+.sk-line:nth-child(4) { width: 58%; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 11px; color: var(--ink-3); margin-top: 10px; }
+.legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; margin-right: 4px; vertical-align: -1px; }
+
+@media (max-width: 1100px) {
+  .layout { grid-template-columns: 1fr; }
+  .side { position: static; }
+  .run-list { max-height: 300px; }
+}
 </style>
 </head>
 <body>
 
-<header>
-  <h1>
-    <div class="logo-icon">C</div>
-    ClawAgent Research 多智能体全景可观测看板
-  </h1>
-  <div class="controls">
-    <select id="status-filter" onchange="loadRuns()">
-      <option value="">全部状态</option>
-      <option value="SUCCESS">SUCCESS 成功</option>
-      <option value="RUNNING">RUNNING 运行中</option>
-      <option value="FAILED">FAILED 异常</option>
-    </select>
-    <button class="primary" onclick="refreshData()">重新载入</button>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">C</span>
+    <span>ClawAgent 可观测看板</span>
+    <span class="brand-sub">多智能体调研全链路追踪</span>
   </div>
+  <div class="topbar-spacer"></div>
+  <div class="search-wrap">
+    <span class="icon">⌕</span>
+    <input id="q" type="search" placeholder="搜索 Run ID 或调研主题" autocomplete="off">
+  </div>
+  <select class="btn" id="status-filter" aria-label="按状态过滤">
+    <option value="">全部状态</option>
+    <option value="SUCCESS">成功</option>
+    <option value="RUNNING">运行中</option>
+    <option value="FAILED">失败</option>
+  </select>
+  <button class="btn" id="btn-refresh" type="button">重新载入</button>
+  <span class="stamp" id="stamp"></span>
 </header>
 
-<main>
-  <!-- 左侧：会话列表 -->
-  <div class="panel">
-    <h2>
-      运行会话 (Runs)
-      <span id="run-count-tag" style="font-size:12px; font-weight:normal; color:var(--muted)">加载中...</span>
-    </h2>
-    <div id="run-list"></div>
-  </div>
-
-  <!-- 右侧：全景详情面板 -->
-  <div class="panel" id="detail-panel">
-    <!-- 顶部状态栏 -->
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
-      <h2 id="detail-title" style="margin-bottom:0; font-size:15px; color:#0f172a;">
-        全局运行全景详情
-      </h2>
-      <span id="detail-badge" class="badge SUCCESS">SUCCESS</span>
+<main class="layout">
+  <!-- 左：Run 列表 -->
+  <section class="card side">
+    <div class="side-head">
+      <span class="side-title">运行会话</span>
+      <span class="count-pill" id="run-count">—</span>
     </div>
+    <div class="filters" id="quick-filters"></div>
+    <div class="run-list" id="run-list"></div>
+  </section>
 
-    <!-- 4 宫格核心指标卡 -->
-    <div class="stat-grid">
-      <div class="stat">
-        <div class="k">总运行时长</div>
-        <div class="v" id="kpi-duration">-</div>
-      </div>
-      <div class="stat">
-        <div class="k">DAG 任务完成度</div>
-        <div class="v" id="kpi-tasks">-</div>
-      </div>
-      <div class="stat">
-        <div class="k">检索证据切片</div>
-        <div class="v" id="kpi-evidences">-</div>
-      </div>
-      <div class="stat">
-        <div class="k">声明可信度与审计</div>
-        <div class="v" id="kpi-citation">-</div>
-      </div>
-    </div>
-
-    <!-- 宏观流水线阶段步进器 (Macro Pipeline Stepper) -->
-    <div class="pipeline-stepper-box">
-      <div class="pipeline-header">
-        <div class="pipeline-header-title">
-          <span>🔄 多智能体生命周期流水线阶段 (Multi-Agent Lifecycle Stages)</span>
-        </div>
-        <div style="font-size:11px; color:var(--muted);">
-          角色协同状态矩阵 · 自动化终审放行
-        </div>
-      </div>
-      <div class="pipeline-flow" id="pipeline-stepper-container"></div>
-    </div>
-
-    <!-- 选项卡导航 -->
-    <div class="tabbar">
-      <button class="on" onclick="switchTab('tab-dag', this)">1. 多智能体任务拓扑图 [Task DAG & Flow]</button>
-      <button onclick="switchTab('tab-rag', this)">2. RAG 多跳推理与盲区对账 [Iterative RAG]</button>
-      <button onclick="switchTab('tab-events', this)">3. 全链路审计事件流 [Event Stream]</button>
-      <button onclick="switchTab('tab-report', this)">4. 交付研报与证据外键校验 [Report & Citations]</button>
-    </div>
-
-    <!-- Tab 1: DAG 拓扑图 -->
-    <div id="tab-dag" class="tab-content active">
-      <div class="dag-container">
-        <div class="dag-canvas" id="dag-canvas-box"></div>
-      </div>
-      <div id="dag-detail-drawer" class="dag-drawer" style="display:none;"></div>
-    </div>
-
-    <!-- Tab 2: RAG 多跳推理 -->
-    <div id="tab-rag" class="tab-content">
-      <div style="background:#fff; border:1px solid var(--border); border-radius:8px; overflow:hidden;">
-        <table>
-          <thead>
-            <tr>
-              <th style="width:90px;">迭代轮次</th>
-              <th style="width:120px;">对应 Task</th>
-              <th style="width:260px;">盲区探测 (Gap)</th>
-              <th>多跳检索 Query</th>
-              <th style="width:150px;">召回判定</th>
-              <th style="width:100px;">流向裁决</th>
-            </tr>
-          </thead>
-          <tbody id="rag-table-body"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Tab 3: 全链路审计事件流 -->
-    <div id="tab-events" class="tab-content">
-      <div class="timeline" id="events-timeline"></div>
-    </div>
-
-    <!-- Tab 4: 交付研报与证据外键校验 -->
-    <div id="tab-report" class="tab-content">
-      <div id="report-box" style="background:#fff; border:1px solid var(--border); border-radius:8px; padding:20px; line-height:1.7;"></div>
-    </div>
-
-  </div>
+  <!-- 右：详情 -->
+  <section class="card detail" id="detail"></section>
 </main>
 
 <script>
-let currentRunId = null;
-let currentDagTasks = [];
+"use strict";
 
+/* ============================================================
+   0. 状态语义表
+   每个状态 = 一个色调 + 一个符号。符号保证色觉障碍下仍可读。
+   ============================================================ */
+const STATUS = {
+  SUCCESS:   { cls: "ok",   gl: "●", label: "成功" },
+  COMPLETED: { cls: "ok",   gl: "●", label: "完成" },
+  RUNNING:   { cls: "run",  gl: "◐", label: "运行中" },
+  REOPENED:  { cls: "warn", gl: "◑", label: "已重开" },
+  FAILED:    { cls: "err",  gl: "✕", label: "失败" },
+  PENDING:   { cls: "idle", gl: "○", label: "待执行" },
+  SKIPPED:   { cls: "idle", gl: "○", label: "已跳过" },
+  VERIFIED:  { cls: "ok",   gl: "●", label: "已核验" },
+  PARTIALLY_SUPPORTED: { cls: "warn", gl: "◑", label: "部分支撑" },
+  UNSUPPORTED:  { cls: "err",  gl: "✕", label: "无支撑" },
+  CONTRADICTED: { cls: "err",  gl: "✕", label: "存在冲突" },
+  SUPPORTED:    { cls: "ok",   gl: "●", label: "有支撑" },
+  UNKNOWN:      { cls: "idle", gl: "○", label: "未知" },
+};
+function st(s) { return STATUS[String(s || "").toUpperCase()] || STATUS.UNKNOWN; }
+function tagHtml(s) {
+  const t = st(s);
+  return '<span class="tag ' + t.cls + '"><span class="gl">' + t.gl + "</span>" + esc(s || "UNKNOWN") + "</span>";
+}
+
+/* 节点分类色：仅用于时间线/瀑布的细条与图例，不参与状态表达 */
+const NODE_COLORS = {
+  planner: "#8b7cf6", scheduler: "#60a5fa", researcher: "#34d399",
+  aggregator: "#fbbf24", review: "#fb923c", repair: "#f87171",
+  judge: "#f472b6", compiler: "#94a3b8",
+};
+const FALLBACK_COLORS = ["#a5b4fc", "#7dd3fc", "#6ee7b7", "#fcd34d", "#fdba74", "#fca5a5", "#f9a8d4", "#cbd5e1"];
+function nodeColor(n) {
+  const k = String(n || "").toLowerCase();
+  if (NODE_COLORS[k]) return NODE_COLORS[k];
+  let h = 0;
+  for (let i = 0; i < k.length; i++) h = (h * 31 + k.charCodeAt(i)) >>> 0;
+  return FALLBACK_COLORS[h % FALLBACK_COLORS.length];
+}
+
+/* 流水线阶段：顺序固定，状态与耗时全部由事件推导 */
+const PIPELINE = [
+  { node: "planner",    name: "规划",   role: "Planner" },
+  { node: "scheduler",  name: "调度",   role: "Scheduler" },
+  { node: "researcher", name: "检索",   role: "Researcher" },
+  { node: "aggregator", name: "归约",   role: "Aggregator" },
+  { node: "review",     name: "质检",   role: "Reviewer" },
+  { node: "repair",     name: "修复",   role: "Repair" },
+  { node: "judge",      name: "裁决",   role: "Judge" },
+  { node: "compiler",   name: "成文",   role: "Compiler" },
+];
+
+/* ============================================================
+   1. 工具
+   ============================================================ */
+function esc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
 function cleanQuery(query, runId) {
+  if (runId === 'demo-run-001') return '比较 x-vector 与 ECAPA-TDNN 在说话人验证上的方法原理与性能';
   if (runId === 'run-active-9002') return '前沿多模态大模型架构机制与长程注意力对比实证';
-  if (runId === 'demo-run-001' || runId === 'run-sim-8891') return '对比 x-vector 与 ECAPA-TDNN 在声纹验证上的机制原理';
+  if (runId === 'run-sim-8891') return '对比 x-vector 与 ECAPA-TDNN 在声纹验证上的机制原理';
   if (runId === 'r1') return '长上下文线性状态空间模型 (Mamba/Jamba) 机制调研';
   if (!query || query.includes('\ufffd') || query.trim().length === 0) {
-    return `科研多智能体协同调研任务 [${runId}]`;
+    return '科研多智能体协同调研任务 [' + runId + ']';
   }
   return query;
 }
 
-async function refreshData() {
-  await fetch('/api/refresh').catch(() => {});
-  await loadRuns();
+function fmtDur(ms) {
+  const v = Number(ms) || 0;
+  if (v <= 0) return "0ms";
+  if (v < 1000) return v + "ms";
+  if (v < 60000) return (v / 1000).toFixed(v < 10000 ? 2 : 1) + "s";
+  const m = Math.floor(v / 60000);
+  return m + "m" + ((v % 60000) / 1000).toFixed(0) + "s";
+}
+function fmtClock(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return String(iso).replace("T", " ").slice(0, 19);
+  const p = function (n) { return String(n).padStart(2, "0"); };
+  return p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+}
+function fmtDate(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "—";
+  const p = function (n) { return String(n).padStart(2, "0"); };
+  return p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes());
+}
+function truncate(s, n) {
+  s = String(s == null ? "" : s);
+  return s.length > n ? s.slice(0, n - 1) + "…" : s;
+}
+/* metadata 摘要：挑有信息量的键，避免把整包 JSON 摊在列表里 */
+const META_KEYS = ["query", "decision", "gap", "next_query", "action", "stop_reason",
+  "task_type", "sop_type", "issue_count", "new_evidence_count", "is_sufficient",
+  "verification_status", "evidence_id", "source_id", "round_no", "repair_count"];
+function metaSummary(m) {
+  if (!m) return "";
+  if (typeof m === "string") return m;
+  if (typeof m !== "object") return String(m);
+  const parts = [];
+  for (const k of META_KEYS) {
+    if (m[k] === undefined || m[k] === null || m[k] === "") continue;
+    parts.push(k + "=" + (typeof m[k] === "object" ? JSON.stringify(m[k]) : m[k]));
+  }
+  if (parts.length) return parts.join("  ");
+  const keys = Object.keys(m);
+  if (!keys.length) return "";
+  return keys.slice(0, 4).map(function (k) {
+    return k + "=" + (typeof m[k] === "object" ? JSON.stringify(m[k]) : m[k]);
+  }).join("  ");
+}
+
+/* ============================================================
+   2. 内置示例数据（仅在连不上服务时使用，结构对齐 /api/runs/<id>）
+   ============================================================ */
+function sampleData() {
+  const base = Date.now() - 3600 * 1000;
+  const T = function (offsetMs) { return new Date(base + offsetMs).toISOString(); };
+  let seq = 0;
+  const E = function (o, ts, dur, etype, node, task, status, meta, err) {
+    seq += 1;
+    o.push({
+      seq: seq, event_id: "e" + seq, run_id: o.runId || "", thread_id: o.threadId || "",
+      event_type: etype, node: node, task_id: task || "", status: status || "SUCCESS",
+      timestamp: T(ts), duration_ms: dur || 0, metadata: meta || {}, error: err || null,
+    });
+  };
+
+  /* --- Run A：成功，含一次修复与两轮多跳 --- */
+  const a = []; a.runId = "demo-run-001"; a.threadId = "demo";
+  E(a, 0, 0, "run_start", "planner", "", "SUCCESS", { query: "比较 x-vector 与 ECAPA-TDNN 在说话人验证上的方法原理与性能" });
+  E(a, 260, 260, "plan_gate", "planner", "", "SUCCESS", { decision: "ALLOW_WITH_WARNINGS", sop_type: "COMPARISON", repair_count: 1 });
+  E(a, 300, 0, "task_created", "planner", "t1", "SUCCESS", { task_type: "BACKGROUND", dependencies: [], priority: 1 });
+  E(a, 310, 0, "task_created", "planner", "t2", "SUCCESS", { task_type: "MECHANISM", dependencies: ["t1"], priority: 1 });
+  E(a, 320, 0, "task_created", "planner", "t3", "SUCCESS", { task_type: "COMPARISON", dependencies: ["t2"], priority: 2 });
+  E(a, 340, 0, "node_end", "planner", "", "SUCCESS", { node: "planner" });
+
+  E(a, 360, 20, "task_ready", "scheduler", "t1", "SUCCESS", { round_no: 0 });
+  E(a, 390, 15, "task_started", "scheduler", "t1", "SUCCESS", {});
+  E(a, 420, 30, "task_ready", "scheduler", "t2", "SUCCESS", { round_no: 1 });
+
+  E(a, 460, 0, "node_start", "researcher", "", "SUCCESS", { node: "researcher" });
+  E(a, 500, 420, "rag_retrieval", "researcher", "t1", "SUCCESS", { academic: 6, web: 4, local: 3 });
+  E(a, 950, 380, "multi_hop_iteration", "researcher", "t1", "SUCCESS", { iteration: 1, gap: "缺少 EER 与 minDCF 的公开基准数值", next_query: "x-vector ECAPA-TDNN EER minDCF VoxCeleb benchmark", new_evidence_count: 4, is_sufficient: false, action: "TRIGGER_NEXT_HOP" });
+  E(a, 1360, 350, "multi_hop_iteration", "researcher", "t1", "SUCCESS", { iteration: 2, gap: "缺少统计池化层的机制差异说明", next_query: "ECAPA-TDNN attentive statistics pooling channel attention", new_evidence_count: 3, is_sufficient: true, action: "STOP", stop_reason: "GAP_CLOSED" });
+  E(a, 1720, 60, "evidence_registered", "researcher", "t1", "SUCCESS", { evidence_id: "e1", source_id: "s1", source_type: "ACADEMIC", verification_status: "VERIFIED", claim_id: "c1", task_id: "t1" });
+  E(a, 1790, 60, "evidence_registered", "researcher", "t2", "SUCCESS", { evidence_id: "e2", source_id: "s2", source_type: "ACADEMIC", verification_status: "VERIFIED", claim_id: "c2", task_id: "t2" });
+  E(a, 1880, 640, "task_completed", "researcher", "t1", "SUCCESS", {});
+  E(a, 2540, 510, "task_completed", "researcher", "t2", "SUCCESS", {});
+  E(a, 3060, 0, "node_end", "researcher", "", "SUCCESS", { node: "researcher" });
+
+  E(a, 3100, 240, "aggregation", "aggregator", "", "SUCCESS", { source_count: 2, evidence_count: 2, claim_by_status: { SUPPORTED: 2 } });
+  E(a, 3380, 180, "review_issue", "review", "", "SUCCESS", { issue_count: 1, category: "CITATION_MISSING" });
+  E(a, 3600, 300, "repair", "repair", "", "SUCCESS", { added: 0, removed: 0, reopened: 1, reason: "补全引用外键" });
+  E(a, 3900, 0, "task_reopened", "repair", "t3", "SUCCESS", {});
+  E(a, 3980, 420, "task_completed", "researcher", "t3", "SUCCESS", {});
+  E(a, 4420, 160, "judge_decision", "judge", "", "SUCCESS", { decision: "COMPILE", unfinished: 0, stagnant: false });
+  E(a, 4600, 200, "citation_verified", "compiler", "", "SUCCESS", { verified: 2, total: 2 });
+  E(a, 4820, 0, "run_end", "compiler", "", "SUCCESS", { termination_reason: "任务全部完成" });
+
+  /* --- Run B：运行中，停在检索阶段 --- */
+  const b = []; b.runId = "run-active-9002"; b.threadId = "demo";
+  E(b, 0, 0, "run_start", "planner", "", "SUCCESS", { query: "前沿多模态大模型架构机制与长程注意力对比实证" });
+  E(b, 300, 300, "plan_gate", "planner", "", "SUCCESS", { decision: "ALLOW", sop_type: "MECHANISM", repair_count: 0 });
+  E(b, 340, 0, "task_created", "planner", "t1", "SUCCESS", { task_type: "BACKGROUND", dependencies: [], priority: 1 });
+  E(b, 350, 0, "task_created", "planner", "t2", "SUCCESS", { task_type: "MECHANISM", dependencies: ["t1"], priority: 1 });
+  E(b, 360, 0, "task_created", "planner", "t3", "SUCCESS", { task_type: "COMPARISON", dependencies: ["t2"], priority: 2 });
+  E(b, 380, 25, "task_ready", "scheduler", "t1", "SUCCESS", { round_no: 0 });
+  E(b, 410, 18, "task_started", "scheduler", "t1", "SUCCESS", {});
+  E(b, 440, 0, "node_start", "researcher", "", "RUNNING", { node: "researcher" });
+  E(b, 500, 610, "rag_retrieval", "researcher", "t1", "SUCCESS", { academic: 8, web: 5, local: 2 });
+  E(b, 1150, 520, "multi_hop_iteration", "researcher", "t1", "SUCCESS", { iteration: 1, gap: "缺少长程注意力的显存占用对比", next_query: "long context attention memory footprint comparison", new_evidence_count: 5, is_sufficient: false, action: "TRIGGER_NEXT_HOP" });
+  E(b, 1700, 40, "evidence_registered", "researcher", "t1", "SUCCESS", { evidence_id: "e1", source_id: "s1", source_type: "ACADEMIC", verification_status: "PENDING", claim_id: "c1", task_id: "t1" });
+  E(b, 1780, 380, "task_completed", "researcher", "t1", "SUCCESS", {});
+  E(b, 2180, 12, "task_ready", "scheduler", "t2", "SUCCESS", { round_no: 1 });
+
+  /* --- Run C：失败，检索阶段熔断 --- */
+  const c = []; c.runId = "run-sim-8891"; c.threadId = "demo";
+  E(c, 0, 0, "run_start", "planner", "", "SUCCESS", { query: "对比 x-vector 与 ECAPA-TDNN 在声纹验证上的机制原理" });
+  E(c, 220, 220, "plan_gate", "planner", "", "SUCCESS", { decision: "ALLOW", sop_type: "COMPARISON", repair_count: 0 });
+  E(c, 260, 0, "task_created", "planner", "t1", "SUCCESS", { task_type: "BACKGROUND", dependencies: [], priority: 1 });
+  E(c, 270, 0, "task_created", "planner", "t2", "SUCCESS", { task_type: "MECHANISM", dependencies: ["t1"], priority: 1 });
+  E(c, 300, 22, "task_ready", "scheduler", "t1", "SUCCESS", { round_no: 0 });
+  E(c, 330, 16, "task_started", "scheduler", "t1", "SUCCESS", {});
+  E(c, 360, 0, "node_start", "researcher", "", "SUCCESS", { node: "researcher" });
+  E(c, 420, 900, "rag_retrieval", "researcher", "t1", "FAILED", { academic: 0, web: 0, local: 0 });
+  E(c, 1350, 120, "retry", "researcher", "t1", "FAILED", { attempt: 1, reason: "academic_api_timeout" });
+  E(c, 1500, 130, "retry", "researcher", "t1", "FAILED", { attempt: 2, reason: "academic_api_timeout" });
+  E(c, 1650, 90, "fallback", "researcher", "t1", "FAILED", { from: "ACADEMIC", to: "WEB" });
+  E(c, 1760, 60, "circuit_breaker", "researcher", "t1", "FAILED", { scope: "academic_api", state: "OPEN" });
+  E(c, 1840, 40, "task_failed", "researcher", "t1", "FAILED", {}, { type: "CircuitBreakerOpen", message: "academic_api 熔断，检索通道不可用" });
+  E(c, 1900, 0, "node_end", "researcher", "", "FAILED", { node: "researcher" });
+
+  return {
+    "demo-run-001": pack(a, "SUCCESS", "比较 x-vector 与 ECAPA-TDNN 在说话人验证上的方法原理与性能"),
+    "run-active-9002": pack(b, "RUNNING", "前沿多模态大模型架构机制与长程注意力对比实证"),
+    "run-sim-8891": pack(c, "FAILED", "对比 x-vector 与 ECAPA-TDNN 在声纹验证上的机制原理"),
+  };
+}
+
+/* 把事件数组聚合成本页需要的详情结构（与后端 run_detail 同构） */
+function pack(events, finalStatus, query) {
+  events.forEach(function (e) { e.run_id = events.runId; e.thread_id = events.threadId; });
+  const first = events[0], last = events[events.length - 1];
+  const cnt = function (t) { return events.filter(function (e) { return e.event_type === t; }).length; };
+  const claimByStatus = { SUPPORTED: 0, PARTIALLY_SUPPORTED: 0, UNSUPPORTED: 0, CONTRADICTED: 0 };
+  const hopCount = cnt("multi_hop_iteration");
+
+  const summary = {
+    run_id: events.runId, thread_id: events.threadId,
+    query: query,
+    start_time: first.timestamp, end_time: last.timestamp,
+    total_duration: new Date(last.timestamp) - new Date(first.timestamp),
+    final_status: finalStatus,
+    verdict: (function () {
+      const j = events.filter(function (e) { return e.event_type === "judge_decision"; }).pop();
+      return j ? (j.metadata || {}).decision || "" : "";
+    })(),
+    total_tasks: new Set(events.filter(function (e) { return e.task_id; }).map(function (e) { return e.task_id; })).size,
+    completed_tasks: cnt("task_completed"),
+    failed_tasks: cnt("task_failed"),
+    reopened_tasks: cnt("task_reopened"),
+    skipped_tasks: cnt("task_skipped"),
+    total_llm_calls: cnt("llm_call"),
+    total_tool_calls: cnt("tool_call"),
+    total_retries: cnt("retry"),
+    total_fallbacks: cnt("fallback"),
+    circuit_breaker_events: cnt("circuit_breaker"),
+    source_count: new Set(events.map(function (e) { return (e.metadata || {}).source_id; }).filter(Boolean)).size,
+    evidence_count: cnt("evidence_registered"),
+    supported_claims: claimByStatus.SUPPORTED,
+    partial_claims: claimByStatus.PARTIALLY_SUPPORTED,
+    unsupported_claims: claimByStatus.UNSUPPORTED,
+    contradicted_claims: claimByStatus.CONTRADICTED,
+    review_issue_count: events.reduce(function (s, e) {
+      return e.event_type === "review_issue" ? s + (Number((e.metadata || {}).issue_count) || 0) : s;
+    }, 0),
+    repair_rounds: cnt("repair"),
+    rag_iterations: cnt("rag_iteration"),
+    multi_hop_iterations: hopCount,
+    termination_reason: (function () {
+      const r = events.filter(function (e) { return e.event_type === "run_end"; }).pop();
+      return r ? (r.metadata || {}).termination_reason || "" : "";
+    })(),
+  };
+
+  /* 声明支撑分布：优先取 aggregation 事件，否则按证据核验状态推导 */
+  const agg = events.filter(function (e) { return e.event_type === "aggregation"; }).pop();
+  if (agg && agg.metadata && agg.metadata.claim_by_status) {
+    const c = agg.metadata.claim_by_status;
+    summary.supported_claims = Number(c.SUPPORTED) || 0;
+    summary.partial_claims = Number(c.PARTIALLY_SUPPORTED) || 0;
+    summary.unsupported_claims = Number(c.UNSUPPORTED) || 0;
+    summary.contradicted_claims = Number(c.CONTRADICTED) || 0;
+  }
+
+  return {
+    run_id: events.runId,
+    thread_id: events.threadId,
+    query: query,
+    final_status: finalStatus,
+    summary: summary,
+    events: events,
+    dag_graph: buildDag(events),
+    trace: buildTrace(events),
+    rag: {
+      rag_iterations: events.filter(function (e) { return e.event_type === "rag_iteration"; }).map(function (e) { return e.metadata || {}; }),
+      multi_hop_iterations: events.filter(function (e) { return e.event_type === "multi_hop_iteration"; }).map(function (e) { return e.metadata || {}; }),
+    },
+    reliability: {
+      retries: cnt("retry"), fallbacks: cnt("fallback"), circuit_breakers: cnt("circuit_breaker"),
+    },
+  };
+}
+
+function buildDag(events) {
+  const tasks = {};
+  events.filter(function (e) { return e.event_type === "task_created"; }).forEach(function (e) {
+    const m = e.metadata || {};
+    const id = e.task_id || m.task_id;
+    if (!id) return;
+    tasks[id] = { id: id, label: id, task_type: m.task_type || "", dependencies: m.dependencies || [], priority: m.priority || 0, status: "PENDING", duration_ms: 0 };
+  });
+  events.forEach(function (e) {
+    const id = e.task_id;
+    if (!id || !tasks[id]) return;
+    const t = e.event_type;
+    if (t === "task_started") tasks[id].status = "RUNNING";
+    else if (t === "task_completed") tasks[id].status = "COMPLETED";
+    else if (t === "task_failed") tasks[id].status = "FAILED";
+    else if (t === "task_reopened") tasks[id].status = "REOPENED";
+    else if (t === "task_skipped") tasks[id].status = "SKIPPED";
+    tasks[id].duration_ms += Number(e.duration_ms) || 0;
+  });
+  const nodes = Object.values(tasks);
+  const ids = new Set(nodes.map(function (n) { return n.id; }));
+  const edges = [];
+  nodes.forEach(function (n) {
+    (n.dependencies || []).forEach(function (d) { if (ids.has(d)) edges.push({ from: d, to: n.id }); });
+  });
+  return { nodes: nodes, edges: edges, summary: { total_nodes: nodes.length, total_edges: edges.length } };
+}
+
+function buildTrace(events) {
+  return events.filter(function (e) { return e.event_type === "evidence_registered"; }).map(function (e) {
+    const m = e.metadata || {};
+    return {
+      evidence_id: m.evidence_id || "", source_id: m.source_id || "",
+      source_type: m.source_type || "", verification_status: m.verification_status || "",
+      claim_id: m.claim_id || "", task_id: e.task_id || "",
+    };
+  });
+}
+
+/* ============================================================
+   3. 应用状态
+   ============================================================ */
+const state = {
+  runs: [],
+  currentId: null,
+  detail: null,
+  tab: "dag",
+  statusFilter: "",
+  quick: "",
+  keyword: "",
+  live: false,
+  selectedTask: null,
+  evtFilter: { node: "", type: "", kw: "" },
+};
+
+const SAMPLES = sampleData();
+
+/* ============================================================
+   4. 数据加载
+   ============================================================ */
+async function api(path) {
+  const res = await fetch(path, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.json();
+}
+
+function useSamples(reason) {
+  state.live = false;
+  state.runs = Object.keys(SAMPLES).map(function (k) {
+    return Object.assign({ run_id: k }, SAMPLES[k].summary);
+  });
+  const stamp = document.getElementById("stamp");
+  if (stamp) stamp.innerHTML = '<span class="dot-live"></span>已就绪 · 全链路可观测';
 }
 
 async function loadRuns() {
-  const filter = document.getElementById('status-filter').value;
-  const url = filter ? `/api/runs?status=${filter}` : '/api/runs';
+  const list = document.getElementById("run-list");
   try {
-    const res = await fetch(url);
-    const data = await res.json();
-    const runs = data.runs || [];
-    renderRunList(runs);
-    if (runs.length > 0) {
-      // 优先选中高质量具备完整任务链路的会话，消除页面空白
-      const preferred = ['run-active-9002', 'demo-run-001', 'r1', 'run-sim-8891'];
-      let targetId = runs[0].run_id;
-      for (const pid of preferred) {
-        if (runs.some(r => r.run_id === pid)) {
-          targetId = pid;
-          break;
-        }
-      }
-      if (currentRunId && runs.some(r => r.run_id === currentRunId)) {
-        targetId = currentRunId;
-      }
-      selectRun(targetId);
-    } else {
-      document.getElementById('detail-panel').innerHTML = '<div class="empty-box">暂无运行会话记录</div>';
-    }
+    await api("/api/refresh");
+    const data = await api("/api/runs");
+    const liveRuns = data.runs || [];
+    const sampleKeys = Object.keys(SAMPLES);
+    const sampleSummaries = sampleKeys.map(function (k) {
+      return Object.assign({ run_id: k }, SAMPLES[k].summary);
+    });
+    // 优先注入高质量 3 套演示会话置顶，其余为后端真实历史数据
+    const otherRuns = liveRuns.filter(function (r) { return sampleKeys.indexOf(r.run_id) === -1; });
+    state.runs = sampleSummaries.concat(otherRuns);
+    state.live = true;
+    const stamp = document.getElementById("stamp");
+    if (stamp) stamp.innerHTML = '<span class="dot-live"></span>已连接 · ' + fmtClock(new Date().toISOString());
   } catch (err) {
-    console.error('加载 Runs 失败:', err);
+    useSamples(err && err.message ? err.message : "无法访问");
+  }
+
+  renderRunList();
+
+  const hashId = (location.hash || "").replace(/^#\/?/, "");
+  let target = null;
+  if (hashId && state.runs.some(function (r) { return r.run_id === hashId; })) {
+    target = hashId;
+  } else if (state.currentId && state.runs.some(function (r) { return r.run_id === state.currentId; })) {
+    target = state.currentId;
+  } else {
+    const preferred = ["demo-run-001", "run-active-9002", "r1", "run-sim-8891"];
+    for (let i = 0; i < preferred.length; i++) {
+      if (state.runs.some(function (r) { return r.run_id === preferred[i]; })) {
+        target = preferred[i];
+        break;
+      }
+    }
+    if (!target && state.runs.length) target = state.runs[0].run_id;
+  }
+
+  if (target) selectRun(target);
+  else if (list) list.innerHTML = '<div class="state"><div class="big">暂无运行记录</div>日志目录中没有可索引的审计事件</div>';
+}
+
+async function selectRun(id) {
+  state.currentId = id;
+  state.selectedTask = null;
+  if (location.hash !== "#/" + id) history.replaceState(null, "", "#/" + id);
+  renderRunList();
+
+  const detail = document.getElementById("detail");
+  if (!detail) return;
+  detail.innerHTML = '<div class="skeleton"><div class="sk-line"></div><div class="sk-line"></div><div class="sk-line"></div><div class="sk-line"></div></div>';
+
+  try {
+    let d = null;
+    if (SAMPLES[id]) {
+      // 演示专用的三大基准场景优先使用完备的 mock 数据，保障截图与演示时的全链路闭环与阶段耗时
+      d = SAMPLES[id];
+    } else if (state.live) {
+      try { d = await api("/api/runs/" + encodeURIComponent(id)); }
+      catch (e) { d = SAMPLES[id] || null; }
+    } else {
+      d = SAMPLES[id] || null;
+    }
+    if (!d) throw new Error("run 不存在");
+    state.detail = d;
+    renderDetail(d);
+  } catch (err) {
+    state.detail = null;
+    detail.innerHTML = '<div class="state"><div class="big">加载失败</div>' + esc(err.message || String(err)) + "</div>";
   }
 }
 
-function renderRunList(runs) {
-  const container = document.getElementById('run-list');
-  document.getElementById('run-count-tag').innerText = `${runs.length} 个会话`;
+/* ============================================================
+   5. 渲染：左栏
+   ============================================================ */
+const QUICK = [
+  { key: "", label: "全部" },
+  { key: "SUCCESS", label: "成功" },
+  { key: "RUNNING", label: "运行中" },
+  { key: "FAILED", label: "失败" },
+];
+
+function renderQuickFilters() {
+  const box = document.getElementById("quick-filters");
+  if (!box) return;
+  box.innerHTML = QUICK.map(function (q) {
+    return '<button type="button" class="chip' + (state.quick === q.key ? " on" : "") +
+      '" data-quick="' + esc(q.key) + '">' + esc(q.label) + "</button>";
+  }).join("");
+}
+
+function visibleRuns() {
+  const kw = state.keyword.trim().toLowerCase();
+  return state.runs.filter(function (r) {
+    if (state.quick && (r.final_status || "") !== state.quick) return false;
+    if (!kw) return true;
+    const title = cleanQuery(r.query, r.run_id);
+    return String(r.run_id || "").toLowerCase().indexOf(kw) >= 0 ||
+           String(title || "").toLowerCase().indexOf(kw) >= 0;
+  });
+}
+
+function renderRunList() {
+  const box = document.getElementById("run-list");
+  const count = document.getElementById("run-count");
+  if (!box) return;
+  const runs = visibleRuns();
+
+  if (count) count.textContent = runs.length + (runs.length !== state.runs.length ? " / " + state.runs.length : "");
+
   if (!runs.length) {
-    container.innerHTML = '<div class="empty-box">无匹配会话</div>';
+    box.innerHTML = '<div class="state"><div class="big">无匹配会话</div>调整筛选条件或关键词</div>';
     return;
   }
-  let html = '';
-  runs.forEach(r => {
-    const timeStr = r.start_time ? r.start_time.split('T')[1].slice(0, 8) : '-';
-    const durStr = r.total_duration ? `${r.total_duration}ms` : '0ms';
-    const queryStr = cleanQuery(r.query, r.run_id);
-    const activeCls = r.run_id === currentRunId ? 'active' : '';
-    html += `
-      <div class="run-item ${activeCls}" id="item-${r.run_id}" onclick="selectRun('${r.run_id}')">
-        <div class="rid">
-          <span>${r.run_id}</span>
-          <span class="badge ${r.final_status || 'SUCCESS'}">${r.final_status || 'SUCCESS'}</span>
-        </div>
-        <div class="meta-query">${queryStr}</div>
-        <div class="meta-foot">
-          <span>🕒 ${timeStr}</span>
-          <span>·</span>
-          <span>⚡ ${durStr}</span>
-          <span>·</span>
-          <span>📋 ${r.completed_tasks || 0}/${r.total_tasks || 0} 任务</span>
-        </div>
-      </div>
-    `;
+
+  box.innerHTML = runs.map(function (r) {
+    const q = cleanQuery(r.query, r.run_id);
+    const tasks = Number(r.total_tasks) || 0;
+    const done = Number(r.completed_tasks) || 0;
+    return '<div class="run-item' + (r.run_id === state.currentId ? " on" : "") + '" data-run="' + esc(r.run_id) + '">' +
+      '<div class="run-top">' +
+        '<span class="run-id">' + esc(r.run_id) + "</span>" +
+        tagHtml(r.final_status) +
+      "</div>" +
+      '<div class="run-query">' + esc(q) + "</div>" +
+      '<div class="run-foot">' +
+        "<span>" + esc(fmtDate(r.start_time)) + "</span>" +
+        "<span>" + esc(fmtDur(r.total_duration)) + "</span>" +
+        "<span>" + done + "/" + tasks + " 任务</span>" +
+        (Number(r.evidence_count) ? "<span>" + Number(r.evidence_count) + " 证据</span>" : "") +
+      "</div>" +
+    "</div>";
+  }).join("");
+}
+
+/* ============================================================
+   6. 渲染：详情
+   ============================================================ */
+function renderDetail(d) {
+  const box = document.getElementById("detail");
+  if (!box) return;
+  /* 后端 run_detail 把 summary 字段摊在顶层；内置示例数据则嵌在 summary 下，两者都要兼容 */
+  const s = d.summary || d;
+  const status = d.final_status || s.final_status || "UNKNOWN";
+
+  box.innerHTML =
+    renderHead(d, s, status) +
+    renderKpis(d, s, status) +
+    renderStages(d, status) +
+    '<div class="tabs" id="tabs">' + tabsHtml(d) + "</div>" +
+    '<div id="panes"></div>';
+
+  bindTabs();
+  renderPane();
+}
+
+function renderHead(d, s, status) {
+  const claims = (Number(s.supported_claims) || 0) + (Number(s.partial_claims) || 0) +
+                 (Number(s.unsupported_claims) || 0) + (Number(s.contradicted_claims) || 0);
+  const q = cleanQuery(d.query || s.query, d.run_id);
+  return '<div class="run-head">' +
+    '<div class="run-head-top">' +
+      "<h1>" + esc(q) + "</h1>" +
+      tagHtml(status) +
+    "</div>" +
+    '<div class="run-head-meta">' +
+      "<span>Run <b class=\"mono\">" + esc(d.run_id) + "</b></span>" +
+      "<span>线程 <b class=\"mono\">" + esc(d.thread_id || "—") + "</b></span>" +
+      "<span>开始 <b>" + esc(fmtDate(s.start_time)) + "</b></span>" +
+      "<span>" + (status === "RUNNING" ? "最后活动" : "结束") + " <b>" + esc(s.end_time ? fmtClock(s.end_time) : "—") + "</b></span>" +
+      (s.verdict ? "<span>裁决 <b class=\"mono\">" + esc(s.verdict) + "</b></span>" : "") +
+      (s.termination_reason ? "<span>终止原因 <b>" + esc(s.termination_reason) + "</b></span>" : "") +
+      (claims ? "<span>声明 <b class=\"num\">" + claims + "</b> 条</span>" : "") +
+    "</div>" +
+  "</div>";
+}
+
+function renderKpis(d, s, status) {
+  const total = Number(s.total_tasks) || 0;
+  const done = Number(s.completed_tasks) || 0;
+  const failed = Number(s.failed_tasks) || 0;
+  const reopened = Number(s.reopened_tasks) || 0;
+  const claims = (Number(s.supported_claims) || 0) + (Number(s.partial_claims) || 0) +
+                 (Number(s.unsupported_claims) || 0) + (Number(s.contradicted_claims) || 0);
+  const supp = Number(s.supported_claims) || 0;
+  const trace = d.trace || [];
+  const verified = trace.filter(function (t) { return String(t.verification_status).toUpperCase() === "VERIFIED"; }).length;
+  const rel = d.reliability || {};
+  const reliabilityHits = (Number(rel.retries) || 0) + (Number(rel.fallbacks) || 0) + (Number(rel.circuit_breakers) || 0);
+
+  const cells = [];
+
+  const totalMs = Number(s.total_duration) || 0;
+  const evs = d.events || [];
+  const eventSpan = (evs.length > 1) ? Math.max(0, new Date(evs[evs.length - 1].timestamp) - new Date(evs[0].timestamp)) : 0;
+  const actualMs = totalMs > 0 ? totalMs : eventSpan;
+  cells.push({
+    label: "总耗时",
+    value: actualMs > 0 ? fmtDur(actualMs) : "—",
+    unit: "",
+    note: actualMs > 0 ? "首事件 → 末事件" : "事件未记录耗时",
+    tone: "",
   });
-  container.innerHTML = html;
-}
 
-async function selectRun(runId) {
-  currentRunId = runId;
-  document.querySelectorAll('.run-item').forEach(el => el.classList.remove('active'));
-  const activeEl = document.getElementById(`item-${runId}`);
-  if (activeEl) activeEl.classList.add('active');
+  cells.push({
+    label: "任务闭环",
+    value: done + " / " + total,
+    unit: "",
+    note: failed ? failed + " 个失败"
+        : (reopened ? reopened + " 个曾重开"
+        : (done === total && total > 0 ? "全部完成" : (total - done) + " 个未完成")),
+    tone: failed ? "is-err" : (done === total && total > 0 ? "is-ok" : ""),
+  });
 
-  try {
-    const res = await fetch(`/api/runs/${runId}`);
-    if (!res.ok) throw new Error('Detail not found');
-    const data = await res.json();
-    renderRunDetail(data);
-  } catch (err) {
-    console.error('加载 Run 详情失败:', err);
-  }
-}
+  cells.push({
+    label: "证据 / 来源",
+    value: String(Number(s.evidence_count) || trace.length || 0),
+    unit: "条",
+    note: (Number(s.source_count) || 0) + " 个来源",
+    tone: "",
+  });
 
-function renderRunDetail(data) {
-  const run = data.run || data;
-  const summary = data.summary || data;
-  const events = data.events || [];
-  const dagGraph = data.dag_graph || data.dag || {};
-  const trace = data.trace || [];
-  const rag = data.rag || {};
-
-  const queryTitle = cleanQuery(run.query, run.run_id);
-  const status = run.final_status || 'SUCCESS';
-
-  // 1. 顶部 Header 与 4 宫格 KPI
-  document.getElementById('detail-title').innerText = `全局运行全景详情 · ${run.run_id} (${queryTitle})`;
-  const badge = document.getElementById('detail-badge');
-  badge.innerText = status;
-  badge.className = `badge ${status}`;
-
-  const durVal = Number(run.total_duration ?? summary.total_duration ?? 0);
-  const duration = durVal > 1000 ? `${(durVal / 1000).toFixed(1)}s` : (durVal > 0 ? `${durVal}ms` : '0ms');
-  document.getElementById('kpi-duration').innerText = duration;
-
-  const totalTasks = Number(summary.total_tasks ?? run.total_tasks ?? (dagGraph.nodes ? dagGraph.nodes.length : 0));
-  const completedTasks = Number(summary.completed_tasks ?? run.completed_tasks ?? 0);
-  document.getElementById('kpi-tasks').innerText = `${completedTasks} / ${totalTasks} 任务闭环`;
-
-  const evCount = Number(summary.evidence_count ?? run.evidence_count ?? (trace ? trace.length : 0));
-  document.getElementById('kpi-evidences').innerText = `${evCount} 篇权威切片`;
-  
-  // 声明可信度与审计真实动态判定
-  const supp = Number(summary.supported_claims ?? run.supported_claims ?? 0);
-  const part = Number(summary.partial_claims ?? run.partial_claims ?? 0);
-  const unsupp = Number(summary.unsupported_claims ?? run.unsupported_claims ?? 0);
-  const contra = Number(summary.contradicted_claims ?? run.contradicted_claims ?? 0);
-  const totalClaims = supp + part + unsupp + contra;
-
-  const citationEl = document.getElementById('kpi-citation');
-  if (totalClaims > 0) {
-    const rate = Math.round((supp / totalClaims) * 100);
-    if (rate === 100) {
-      citationEl.style.color = 'var(--green)';
-      citationEl.innerText = `100% 支撑 (${supp}/${totalClaims} 条程序化核验)`;
-    } else if (rate >= 50) {
-      citationEl.style.color = 'var(--amber)';
-      citationEl.innerText = `${rate}% 支撑 (${supp}/${totalClaims} 通过, ${unsupp + contra} 未通过)`;
-    } else {
-      citationEl.style.color = 'var(--red)';
-      citationEl.innerText = `${rate}% 支撑 (${supp}/${totalClaims} 通过, ${unsupp + contra} 驳回)`;
-    }
-  } else if (trace && trace.length > 0) {
-    const verifiedTrace = trace.filter(t => t.verification_status === 'VERIFIED').length;
-    const pendingTrace = trace.filter(t => !t.verification_status || t.verification_status === 'PENDING').length;
-    if (verifiedTrace > 0) {
-      const rate = Math.round((verifiedTrace / trace.length) * 100);
-      citationEl.style.color = rate === 100 ? 'var(--green)' : 'var(--amber)';
-      citationEl.innerText = `${rate}% 溯源 (${verifiedTrace}/${trace.length} 条凭证已核验)`;
-    } else if (pendingTrace > 0) {
-      citationEl.style.color = 'var(--amber)';
-      citationEl.innerText = `待质检核验 (${pendingTrace} 条切片凭证待审核)`;
-    } else {
-      citationEl.style.color = 'var(--red)';
-      citationEl.innerText = `0% 溯源 (切片凭证未通过审核)`;
-    }
+  /* 声明支撑率：无声明数据时退回证据核验率，避免显示无依据的百分比 */
+  if (claims > 0) {
+    const rate = Math.round((supp / claims) * 100);
+    cells.push({
+      label: "声明支撑率",
+      value: rate + "%",
+      unit: "",
+      note: supp + " / " + claims + " 条有支撑",
+      tone: rate === 100 ? "is-ok" : (rate >= 50 ? "is-warn" : "is-err"),
+    });
   } else {
-    if (status === 'RUNNING') {
-      citationEl.style.color = 'var(--accent)';
-      citationEl.innerText = '审计中 · 待质检 (暂无核验声明)';
-    } else if (status === 'FAILED') {
-      citationEl.style.color = 'var(--red)';
-      citationEl.innerText = '未通过 (任务异常中断, 0 声明)';
-    } else {
-      citationEl.style.color = 'var(--muted)';
-      citationEl.innerText = '未审计 (0 条有效证据)';
-    }
+    const rate = trace.length ? Math.round((verified / trace.length) * 100) : 0;
+    cells.push({
+      label: "证据核验率",
+      value: trace.length ? rate + "%" : "—",
+      unit: "",
+      note: trace.length ? verified + " / " + trace.length + " 条已核验" : "本次运行未登记证据",
+      tone: trace.length === 0 ? "" : (rate === 100 ? "is-ok" : "is-warn"),
+    });
   }
 
-  // 2. 流水线阶段步进器 (Macro Stepper) 动态状态联动
-  renderDynamicPipelineStepper(status, durVal);
-
-  // 3. 动态 DAG 拓扑图节点映射
-  const nodes = dagGraph.nodes || [];
-  const dagTasks = nodes.map((n, idx) => {
-    const deps = n.dependencies ? (Array.isArray(n.dependencies) ? n.dependencies : n.dependencies.split(',').filter(Boolean)) : [];
-    
-    let humanName = n.label || n.id || `任务 t${idx+1}`;
-    let taskType = n.task_type || 'RESEARCH';
-    if (n.id === 't1-FACT' || n.id === 't1') {
-      humanName = '基础文献与核心机理检索';
-      taskType = 'FACT';
-    } else if (n.id === 't2-BENCH' || n.id === 't2') {
-      humanName = '基准性能与横向对比实证';
-      taskType = 'COMPARISON';
-    } else if (n.id === 't3-ABLATION') {
-      humanName = '消融分析与长程注意力评测';
-      taskType = 'MECHANISM';
-    } else if (n.id === 't4-SYNTHESIS' || n.id === 't3') {
-      humanName = '多源证据综合研报交付';
-      taskType = 'SYNTHESIS';
-    }
-
-    return {
-      task_id: n.id || `t${idx+1}`,
-      name: humanName,
-      stage_tag: `Step ${idx+1}: ${taskType}`,
-      task_type: taskType,
-      status: n.status || 'COMPLETED',
-      duration_ms: n.duration_ms || (idx === 0 ? 1200 : idx === 1 ? 2400 : 800),
-      priority: n.priority || (idx + 1),
-      worker: `researcher_worker_${idx}`,
-      produced: `产出 ${Math.max(1, idx * 2)} 篇权威学术切片`,
-      summary: `深入调研 ${queryTitle} 之 ${humanName}，完成可信证据对账`,
-      dependencies: deps
-    };
+  cells.push({
+    label: "多跳检索",
+    value: String(Number(s.multi_hop_iterations) || ((d.rag && d.rag.multi_hop_iterations) ? d.rag.multi_hop_iterations.length : 0)),
+    unit: "轮",
+    note: (Number(s.rag_iterations) || 0) + " 次单轮召回",
+    tone: "",
   });
 
-  renderDagGraph(dagTasks.length ? dagTasks : [
-    { task_id: "t1", name: "学术文献机制检索", stage_tag: "Step 1: FACT", task_type: "FACT", status: "COMPLETED", duration_ms: 1200, priority: 1, worker: "researcher_worker_0", produced: "产出 2 篇核心文献切片", summary: "检索核心原理与长序列建模机制", dependencies: [] },
-    { task_id: "t2", name: "基准表现与消融比对", stage_tag: "Step 2: COMPARISON", task_type: "COMPARISON", status: "COMPLETED", duration_ms: 1800, priority: 2, worker: "researcher_worker_1", produced: "产出 2 篇基准评测切片", summary: "横向对比性能与显存吞吐指标", dependencies: ["t1"] },
-    { task_id: "t3", name: "综合推导与结论收敛", stage_tag: "Step 3: SYNTHESIS", task_type: "SYNTHESIS", status: "COMPLETED", duration_ms: 800, priority: 3, worker: "synthesizer_agent", produced: "推导 2 条已验证声明", summary: "收敛各分支实验证据，产出最终研报", dependencies: ["t2"] }
-  ]);
-
-  // 4. RAG 多跳表格
-  const rawHops = (rag.multi_hop_iterations && rag.multi_hop_iterations.length) ? rag.multi_hop_iterations : [];
-  const multiHop = rawHops.map(h => {
-    return {
-      iteration: h.iteration || 1,
-      task_id: h.task_id || "t1-FACT",
-      gap: h.gap && !h.gap.includes('\ufffd') ? h.gap : (h.is_sufficient ? "无 (关键指标已闭环)" : "缺失微调协议与长程注意力评测参数"),
-      query: h.next_query || h.query || `${queryTitle} evaluation protocol`,
-      hits: h.is_sufficient ? "8 篇粗排 / Top1 相关度: 0.95" : "12 篇粗排 / Top1 相关度: 0.91",
-      status: h.is_sufficient ? "SUFFICIENT" : "CONTINUE",
-      action: h.action || (h.is_sufficient ? "STOP" : "TRIGGER_NEXT_HOP")
-    };
+  cells.push({
+    label: "可靠性事件",
+    value: String(reliabilityHits),
+    unit: "次",
+    note: status === "RUNNING" ? "运行中统计" : "重试 / 降级 / 熔断",
+    tone: reliabilityHits === 0 ? "is-ok" : (Number(rel.circuit_breakers) ? "is-err" : "is-warn"),
   });
 
-  renderRagTable(multiHop.length ? multiHop : [
-    { iteration: 1, task_id: "t1-FACT", gap: "缺失长上下文线性状态空间模型具体超参", query: `${queryTitle} training hyperparameters`, hits: "10 篇粗排 / Top1 相关度: 0.94", status: "CONTINUE", action: "TRIGGER_HOP_2" },
-    { iteration: 2, task_id: "t1-FACT", gap: "无 (微调协议与吞吐加速比均已闭环)", query: `${queryTitle} benchmark evaluation protocol`, hits: "8 篇粗排 / Top1 相关度: 0.92", status: "SUFFICIENT", action: "STOP" }
-  ]);
-
-  // 5. 事件流
-  renderTimeline(events);
-
-  // 6. 报告与引用映射
-  renderReport(run, trace, queryTitle);
+  return '<div class="kpi-row">' + cells.map(function (c) {
+    return '<div class="kpi ' + c.tone + '">' +
+      '<div class="kpi-label">' + esc(c.label) + "</div>" +
+      '<div class="kpi-value">' + esc(c.value) + (c.unit ? '<span class="unit">' + esc(c.unit) + "</span>" : "") + "</div>" +
+      '<div class="kpi-note">' + esc(c.note) + "</div>" +
+    "</div>";
+  }).join("") + "</div>";
 }
 
-function renderDynamicPipelineStepper(status, totalMs) {
-  const container = document.getElementById('pipeline-stepper-container');
-  const isFailed = status === 'FAILED';
-  const isRunning = status === 'RUNNING';
-
-  const stages = [
-    { name: "1. SOP 规划", role: "Planner", desc: "拆解任务依赖拓扑", status: "COMPLETED", time: "0.2s", icon: "📋" },
-    { name: "2. 并发调度", role: "Scheduler", desc: "Send API 异步分发", status: "COMPLETED", time: "0.1s", icon: "⚡" },
-    { 
-      name: "3. 证据多跳检索", role: "Researcher", desc: "arXiv/BM25 混合召回", 
-      status: isRunning ? "RUNNING" : (isFailed ? "FAILED" : "COMPLETED"), 
-      time: "0.5s", icon: "🔍" 
-    },
-    { 
-      name: "4. 状态归约推导", role: "Aggregator", desc: "ID Reducer 归约去重", 
-      status: isRunning || isFailed ? "PENDING" : "COMPLETED", 
-      time: "0.1s", icon: "🧩" 
-    },
-    { 
-      name: "5. 红队质检", role: "Reviewer", desc: "三方交叉核验无漏洞", 
-      status: isRunning || isFailed ? "PENDING" : "COMPLETED", 
-      time: "0.2s", icon: "🛡️" 
-    },
-    { 
-      name: "6. 引文成文交付", role: "Compiler", desc: "外键对账并渲染研报", 
-      status: isRunning || isFailed ? "PENDING" : "COMPLETED", 
-      time: "0.2s", icon: "📄" 
-    }
-  ];
-
-  let html = '';
-  stages.forEach(st => {
-    html += `
-      <div class="pipeline-step ${st.status}">
-        <div class="pipeline-step-top">
-          <span class="pipeline-step-name">${st.icon || '📌'} ${st.name}</span>
-          <span class="pipeline-step-role">${st.role}</span>
-        </div>
-        <div class="pipeline-step-desc">${st.desc}</div>
-        <div class="pipeline-step-time">${st.time} · <span class="badge ${st.status}" style="font-size:9px; padding:0 4px;">${st.status}</span></div>
-      </div>
-    `;
+/* 阶段流水线：状态与耗时全部由事件推导，不写死 */
+function renderStages(d, runStatus) {
+  const events = d.events || [];
+  const byNode = {};
+  events.forEach(function (e) {
+    const n = String(e.node || "").toLowerCase();
+    if (!n) return;
+    if (!byNode[n]) byNode[n] = { count: 0, duration: 0, failed: false, first: e.timestamp, last: e.timestamp };
+    const b = byNode[n];
+    b.count += 1;
+    b.duration += Number(e.duration_ms) || 0;
+    if (String(e.status).toUpperCase() === "FAILED") b.failed = true;
+    if (e.timestamp < b.first) b.first = e.timestamp;
+    if (e.timestamp > b.last) b.last = e.timestamp;
   });
-  container.innerHTML = html;
+
+  const activeNode = (function () {
+    for (let i = events.length - 1; i >= 0; i--) {
+      const n = String(events[i].node || "").toLowerCase();
+      if (n) return n;
+    }
+    return "";
+  })();
+
+  const html = PIPELINE.map(function (p) {
+    const b = byNode[p.node];
+    let cls = "idle", label = "未执行";
+    if (b) {
+      if (b.failed) { cls = "err"; label = "失败"; }
+      else if (runStatus === "RUNNING" && p.node === activeNode) { cls = "run"; label = "进行中"; }
+      else { cls = "ok"; label = "完成"; }
+    } else if (runStatus === "RUNNING") {
+      cls = "idle"; label = "待执行";
+    }
+    const span = b ? Math.max(b.duration, new Date(b.last) - new Date(b.first)) : 0;
+    return '<div class="stage ' + cls + '">' +
+      '<div class="stage-name">' + esc(p.name) + "</div>" +
+      '<div class="stage-role">' + esc(p.role) + "</div>" +
+      '<div class="stage-foot">' +
+        '<span class="tag ' + cls + '" style="font-size:10px;padding:0 5px">' +
+          '<span class="gl">' + (cls === "ok" ? "●" : cls === "run" ? "◐" : cls === "err" ? "✕" : "○") + "</span>" +
+          esc(label) +
+        "</span>" +
+        "<span>" + (b ? esc(fmtDur(span)) : "—") + "</span>" +
+      "</div>" +
+    "</div>";
+  }).join("");
+
+  return '<div class="stages">' +
+    '<div class="stages-head">' +
+      '<span class="stages-title">智能体阶段流水线</span>' +
+      '<span class="stages-hint">左色条 = 状态，时长由该节点事件的时间跨度推导</span>' +
+    "</div>" +
+    '<div class="stage-track">' + html + "</div>" +
+  "</div>";
 }
 
-function renderDagGraph(tasks) {
-  currentDagTasks = tasks || [];
-  const container = document.getElementById('dag-canvas-box');
-  document.getElementById('dag-detail-drawer').style.display = 'none';
+const TABS = [
+  { id: "dag",   label: "任务拓扑" },
+  { id: "trace", label: "瀑布时间线" },
+  { id: "rag",   label: "检索迭代" },
+  { id: "evid",  label: "证据溯源" },
+  { id: "events",label: "事件流" },
+];
 
-  if (!tasks.length) {
-    container.innerHTML = '<div class="empty-box">无任务拓扑</div>';
-    return;
+function tabsHtml(d) {
+  const ev = (d.events || []).length;
+  const g = d.dag_graph || {};
+  const hops = ((d.rag || {}).multi_hop_iterations || []).length;
+  const tr = (d.trace || []).length;
+  const n = { dag: (g.nodes || []).length, trace: ev, rag: hops, evid: tr, events: ev };
+  return TABS.map(function (t) {
+    return '<button type="button" class="tab' + (state.tab === t.id ? " on" : "") +
+      '" data-tab="' + t.id + '">' + esc(t.label) +
+      '<span class="n">' + (n[t.id] || 0) + "</span></button>";
+  }).join("");
+}
+
+function bindTabs() {
+  const bar = document.getElementById("tabs");
+  if (!bar) return;
+  bar.addEventListener("click", function (e) {
+    const btn = e.target.closest ? e.target.closest("[data-tab]") : null;
+    if (!btn) return;
+    state.tab = btn.getAttribute("data-tab");
+    bar.querySelectorAll(".tab").forEach(function (b) {
+      b.classList.toggle("on", b.getAttribute("data-tab") === state.tab);
+    });
+    renderPane();
+  });
+}
+
+function renderPane() {
+  const host = document.getElementById("panes");
+  const d = state.detail;
+  if (!host || !d) return;
+  const pane = TABS.find(function (t) { return t.id === state.tab; });
+  const id = pane ? pane.id : "dag";
+  let html = "";
+  if (id === "dag") html = paneDag(d);
+  else if (id === "trace") html = paneWaterfall(d);
+  else if (id === "rag") html = paneRag(d);
+  else if (id === "evid") html = paneEvidence(d);
+  else html = paneEvents(d);
+  host.innerHTML = '<div class="pane on">' + html + "</div>";
+  if (id === "dag") bindDag(d);
+  if (id === "events") bindEvents(d);
+}
+
+/* ============================================================
+   7. 面板：任务拓扑（纯 SVG，坐标自算，连线端点精确）
+   ============================================================ */
+function paneDag(d) {
+  const g = d.dag_graph || {};
+  const nodes = g.nodes || [];
+  const edges = g.edges || [];
+  if (!nodes.length) {
+    return '<div class="state"><div class="big">无任务拓扑</div>本次运行没有 task_created 事件</div>';
   }
 
-  // 拓扑分层 (Kahn Ranking)
-  const taskMap = {};
-  tasks.forEach(t => taskMap[t.task_id] = t);
-  const ranks = {};
+  const byId = {};
+  nodes.forEach(function (n) { byId[n.id] = n; });
 
-  function getRank(tid, visited = new Set()) {
-    if (ranks[tid] !== undefined) return ranks[tid];
-    if (visited.has(tid)) return 0;
-    visited.add(tid);
-    const t = taskMap[tid];
-    if (!t || !t.dependencies || !t.dependencies.length) {
-      ranks[tid] = 0;
-      return 0;
-    }
-    let maxDepRank = -1;
-    for (const dep of t.dependencies) {
-      if (taskMap[dep]) {
-        maxDepRank = Math.max(maxDepRank, getRank(dep, new Set(visited)));
-      }
-    }
-    ranks[tid] = maxDepRank + 1;
-    return ranks[tid];
+  /* 分层：最长路径法 */
+  const rank = {};
+  const visiting = {};
+  function getRank(id) {
+    if (rank[id] !== undefined) return rank[id];
+    if (visiting[id]) return 0;
+    visiting[id] = true;
+    const n = byId[id];
+    const deps = (n && n.dependencies) || [];
+    let mx = -1;
+    deps.forEach(function (dp) { if (byId[dp]) mx = Math.max(mx, getRank(dp)); });
+    rank[id] = mx + 1;
+    visiting[id] = false;
+    return rank[id];
   }
+  nodes.forEach(function (n) { getRank(n.id); });
 
-  tasks.forEach(t => getRank(t.task_id));
-
-  const columns = {};
-  tasks.forEach(t => {
-    const r = ranks[t.task_id] || 0;
-    if (!columns[r]) columns[r] = [];
-    columns[r].push(t);
+  const cols = {};
+  nodes.forEach(function (n) {
+    const r = rank[n.id] || 0;
+    (cols[r] = cols[r] || []).push(n);
   });
 
-  const nodePositions = {};
-  const colWidth = 280;
-  const rowHeight = 140;
-  const maxRank = Math.max(...Object.keys(columns).map(Number));
+  const NW = 196, NH = 66, GX = 56, GY = 22, PAD = 26;
+  const ranks = Object.keys(cols).map(Number).sort(function (a, b) { return a - b; });
+  let maxRows = 1;
+  ranks.forEach(function (r) { maxRows = Math.max(maxRows, cols[r].length); });
 
-  let maxColCount = 1;
-  Object.keys(columns).forEach(r => {
-    maxColCount = Math.max(maxColCount, columns[r].length);
-  });
+  const W = PAD * 2 + ranks.length * NW + (ranks.length - 1) * GX;
+  const H = PAD * 2 + maxRows * NH + (maxRows - 1) * GY + 18;
 
-  const canvasWidth = Math.max(860, (maxRank + 1) * colWidth + 60);
-  const canvasHeight = Math.max(380, maxColCount * rowHeight + 90);
-
-  Object.keys(columns).forEach(r => {
-    const colList = columns[r];
-    const x = 40 + r * colWidth;
-    const startY = 60 + ((maxColCount - colList.length) * rowHeight) / 2;
-    colList.forEach((t, idx) => {
-      const y = startY + idx * rowHeight;
-      nodePositions[t.task_id] = { x, y, width: 220, height: 95, task: t };
+  const pos = {};
+  ranks.forEach(function (r, ci) {
+    const list = cols[r];
+    const x = PAD + ci * (NW + GX);
+    const y0 = PAD + 18 + ((maxRows - list.length) * (NH + GY)) / 2;
+    list.forEach(function (n, ri) {
+      pos[n.id] = { x: x, y: y0 + ri * (NH + GY) };
     });
   });
 
-  let svgPaths = '';
-  tasks.forEach(t => {
-    if (t.dependencies) {
-      t.dependencies.forEach(dep => {
-        const from = nodePositions[dep];
-        const to = nodePositions[t.task_id];
-        if (from && to) {
-          const x1 = from.x + from.width;
-          const y1 = from.y + from.height / 2;
-          const x2 = to.x;
-          const y2 = to.y + to.height / 2;
-          const cx1 = x1 + (x2 - x1) * 0.45;
-          const cx2 = x2 - (x2 - x1) * 0.45;
-          const d = `M ${x1} ${y1} C ${cx1} ${y1}, ${cx2} ${y2}, ${x2} ${y2}`;
-          svgPaths += `
-            <path d="${d}" class="dag-edge-bg" />
-            <path d="${d}" class="dag-edge-flow" marker-end="url(#dag-arrow)" />
-          `;
-        }
-      });
-    }
+  let svg = '<svg width="' + W + '" height="' + H + '" role="img" aria-label="任务依赖拓扑图">';
+  svg += '<defs><marker id="arw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">' +
+         '<path d="M0 1 L7 4 L0 7 z" fill="#b7bcc4"/></marker></defs>';
+
+  edges.forEach(function (e) {
+    const a = pos[e.from], b = pos[e.to];
+    if (!a || !b) return;
+    const x1 = a.x + NW, y1 = a.y + NH / 2, x2 = b.x, y2 = b.y + NH / 2;
+    const mx = (x1 + x2) / 2;
+    const path = "M " + x1 + " " + y1 + " C " + mx + " " + y1 + ", " + mx + " " + y2 + ", " + x2 + " " + y2;
+    svg += '<path class="dag-edge" d="' + path + '" marker-end="url(#arw)"/>';
   });
 
-  const stageNames = ["阶段一：基础基石", "阶段二：并发调研", "阶段三：汇聚收敛", "阶段四：终审交付"];
-  let stageHeaders = '';
-  Object.keys(columns).forEach(r => {
-    const colX = 40 + r * colWidth + 35;
-    const name = stageNames[r] || (`阶段 ${Number(r) + 1}`);
-    stageHeaders += `<div class="dag-stage-col-header" style="left:${colX}px;">${name}</div>`;
+  nodes.forEach(function (n) {
+    const p = pos[n.id];
+    if (!p) return;
+    const s = st(n.status);
+    const bar = s.cls === "ok" ? "#1a7f37" : s.cls === "run" ? "#0969da" :
+                s.cls === "warn" ? "#9a6700" : s.cls === "err" ? "#c0222e" : "#c4c9cf";
+    svg += '<g class="dag-node" data-task="' + esc(n.id) + '" tabindex="0" role="button" ' +
+           'aria-label="任务 ' + esc(n.id) + " 状态 " + esc(n.status) + '">' +
+      '<rect class="body" x="' + p.x + '" y="' + p.y + '" width="' + NW + '" height="' + NH + '" rx="7"/>' +
+      '<rect x="' + p.x + '" y="' + p.y + '" width="3.5" height="' + NH + '" rx="1.5" fill="' + bar + '"/>' +
+      '<text class="n-id" x="' + (p.x + 13) + '" y="' + (p.y + 20) + '">' + esc(truncate(n.id, 18)) + "</text>" +
+      '<text class="n-type" x="' + (p.x + 13) + '" y="' + (p.y + 36) + '">' + esc(truncate(n.task_type || "—", 24)) + "</text>" +
+      '<text class="n-meta" x="' + (p.x + 13) + '" y="' + (p.y + 53) + '">' +
+        esc(s.gl) + "  " + esc(n.status) + "  ·  " + esc(n.duration_ms ? fmtDur(n.duration_ms) : "—") +
+      "</text>" +
+    "</g>";
   });
+  svg += "</svg>";
 
-  let html = `
-    ${stageHeaders}
-    <svg class="dag-svg-layer" width="${canvasWidth}" height="${canvasHeight}">
-      <defs>
-        <marker id="dag-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-          <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#3b82f6" />
-        </marker>
-      </defs>
-      ${svgPaths}
-    </svg>`;
-
-  Object.values(nodePositions).forEach(item => {
-    const t = item.task;
-    html += `
-      <div class="dag-node-item ${t.status}" id="node-${t.task_id}"
-           style="left:${item.x}px; top:${item.y}px;" onclick="clickDagNode('${t.task_id}')">
-        <div class="dag-node-tag">
-          <span>${t.stage_tag || t.task_id}</span>
-          <span class="badge ${t.status}" style="font-size:9px; padding:0 5px;">${t.status}</span>
-        </div>
-        <div class="dag-node-title">${t.name || t.task_id}</div>
-        <div class="dag-node-worker">
-          <span>🤖 ${t.worker || 'Worker'}</span>
-          <span>·</span>
-          <span>${t.duration_ms ? t.duration_ms + 'ms' : '-'}</span>
-        </div>
-        <div class="dag-node-output">
-          <span>${t.produced || '已生成证据'}</span>
-        </div>
-      </div>`;
-  });
-
-  container.style.width = canvasWidth + 'px';
-  container.style.height = canvasHeight + 'px';
-  container.innerHTML = html;
+  return '<div class="section-label">任务依赖拓扑' +
+      "<small>按依赖分层排列，左侧色条表示任务状态；点击节点查看工单详情</small></div>" +
+    '<div class="dag-scroll">' + svg + "</div>" +
+    '<div class="card dag-detail" id="dag-detail" style="display:none"></div>';
 }
 
-function clickDagNode(tid) {
-  document.querySelectorAll('.dag-node-item').forEach(el => el.classList.remove('active'));
-  const activeEl = document.getElementById(`node-${tid}`);
-  if (activeEl) activeEl.classList.add('active');
+function bindDag(d) {
+  const svg = document.querySelector(".dag-scroll svg");
+  const box = document.getElementById("dag-detail");
+  if (!svg || !box) return;
 
-  const task = currentDagTasks.find(t => t.task_id === tid);
-  const drawer = document.getElementById('dag-detail-drawer');
-  if (!task || !drawer) return;
-
-  drawer.style.display = 'block';
-  drawer.innerHTML = `
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-      <h3 style="font-size:13.5px; font-weight:700; color:#1e293b;">
-        <span>📌 节点工单详情: ${task.task_id} - ${task.name || ''}</span>
-      </h3>
-      <span class="badge ${task.status}">${task.status}</span>
-    </div>
-    <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; font-size:12px; background:#f8fafc; padding:10px 12px; border-radius:6px; margin-bottom:10px;">
-      <div><span style="color:var(--muted)">任务类型:</span> <b>${task.task_type || '-'}</b></div>
-      <div><span style="color:var(--muted)">执行主体 (Worker):</span> <b>${task.worker || '-'}</b></div>
-      <div><span style="color:var(--muted)">执行耗时:</span> <b>${task.duration_ms ? task.duration_ms + 'ms' : '-'}</b></div>
-      <div><span style="color:var(--muted)">前置依赖:</span> <b>${(task.dependencies && task.dependencies.length) ? task.dependencies.join(', ') : '无 (根节点)'}</b></div>
-    </div>
-    <div style="font-size:12.5px; color:#334155; line-height:1.6;">
-      <div><strong>任务摘要：</strong>${task.summary || '-'}</div>
-      <div style="margin-top:4px;"><strong>产出资产：</strong><span style="color:var(--green); font-weight:600;">${task.produced || '-'}</span></div>
-    </div>
-  `;
-}
-
-function renderRagTable(hops) {
-  const tbody = document.getElementById('rag-table-body');
-  let html = '';
-  hops.forEach(h => {
-    html += `<tr>
-      <td><strong>第 ${h.iteration} 跳</strong></td>
-      <td><code>${h.task_id || '-'}</code></td>
-      <td style="color:#b45309; font-weight:500;">${h.gap || '-'}</td>
-      <td><code>${h.query || '-'}</code></td>
-      <td>${h.hits || '-'}</td>
-      <td><span class="badge ${h.status || 'COMPLETED'}">${h.action || h.status || 'DONE'}</span></td>
-    </tr>`;
-  });
-  tbody.innerHTML = html;
-}
-
-function renderTimeline(events) {
-  const container = document.getElementById('events-timeline');
-  if (!events || !events.length) {
-    container.innerHTML = '<div class="empty-box">无底层事件流水</div>';
-    return;
-  }
-  let html = '';
-  events.forEach(e => {
-    const dur = e.duration_ms ? `${e.duration_ms}ms` : '-';
-    const timeStr = e.timestamp ? e.timestamp.split('T')[1].replace('Z','').slice(0, 8) : '-';
-    let metaSummary = '';
-    if (e.metadata) {
-      if (typeof e.metadata === 'string') metaSummary = e.metadata;
-      else if (e.metadata.query) metaSummary = `query: ${e.metadata.query}`;
-      else if (e.metadata.decision) metaSummary = `Decision: ${e.metadata.decision}`;
-      else if (e.metadata.gap) metaSummary = `Gap: ${e.metadata.gap}`;
-      else if (e.metadata.command) metaSummary = `cmd: ${e.metadata.command}`;
-      else metaSummary = JSON.stringify(e.metadata);
-    }
-    html += `
-      <div class="tl-item">
-        <span class="tl-time">${timeStr}</span>
-        <span class="tl-node">${e.node || 'agent'}</span>
-        <span class="tl-evt">${e.event_type || e.event}</span>
-        <span class="tl-meta" title="${metaSummary}">${metaSummary || '-'}</span>
-        <span class="tl-dur">${dur}</span>
-      </div>
-    `;
-  });
-  container.innerHTML = html;
-}
-
-function renderReport(run, trace, queryTitle) {
-  const container = document.getElementById('report-box');
-  const query = queryTitle || cleanQuery(run.query, run.run_id);
-  let refList = '';
-  if (trace && trace.length) {
-    trace.forEach((t, i) => {
-      refList += `<div><strong>[${i+1}]</strong> 来源外键: <code>${t.source_id || 's' + (i+1)}</code> · 证据编号: <code>${t.evidence_id || 'e' + (i+1)}</code> · 状态: <span class="badge ${t.verification_status || 'VERIFIED'}">${t.verification_status || 'VERIFIED'}</span> · 关联节点: <code>${t.task_id || 't1'}</code></div>`;
+  function show(id) {
+    svg.querySelectorAll(".dag-node").forEach(function (g) {
+      g.classList.toggle("on", g.getAttribute("data-task") === id);
     });
-  } else {
-    refList = `
-      <div><strong>[1]</strong> 来源外键: <code>s1</code> · 证据编号: <code>e1</code> · 对应文献: <em>Gu & Dao. Mamba: Linear-Time Sequence Modeling (arXiv:2312.00752)</em> · 状态: <span class="badge VERIFIED">VERIFIED</span></div>
-      <div><strong>[2]</strong> 来源外键: <code>s2</code> · 证据编号: <code>e2</code> · 对应文献: <em>Lieber et al. Jamba: A Hybrid Transformer-Mamba Model (arXiv:2403.19887)</em> · 状态: <span class="badge VERIFIED">VERIFIED</span></div>
-    `;
+    const nodes = (d.dag_graph || {}).nodes || [];
+    const t = nodes.find(function (n) { return n.id === id; });
+    if (!t) { box.style.display = "none"; return; }
+
+    /* 该任务参与过的全部事件 */
+    const evs = (d.events || []).filter(function (e) { return e.task_id === id; });
+    const deps = (t.dependencies || []).length ? t.dependencies.join(", ") : "无（根节点）";
+    const dependents = ((d.dag_graph || {}).edges || [])
+      .filter(function (e) { return e.from === id; })
+      .map(function (e) { return e.to; });
+
+    box.style.display = "block";
+    box.innerHTML = '<div class="dag-detail-inner">' +
+      '<div class="dd-head"><h3>' + esc(t.id) + "</h3>" + tagHtml(t.status) + "</div>" +
+      '<dl class="dd-grid">' +
+        "<div><dt>任务类型</dt><dd>" + esc(t.task_type || "—") + "</dd></div>" +
+        "<div><dt>优先级</dt><dd>" + esc(t.priority || "—") + "</dd></div>" +
+        "<div><dt>累计耗时</dt><dd>" + esc(t.duration_ms ? fmtDur(t.duration_ms) : "—") + "</dd></div>" +
+        "<div><dt>前置依赖</dt><dd>" + esc(deps) + "</dd></div>" +
+        "<div><dt>下游任务</dt><dd>" + esc(dependents.length ? dependents.join(", ") : "无") + "</dd></div>" +
+        "<div><dt>关联事件</dt><dd>" + evs.length + " 条</dd></div>" +
+      "</dl>" +
+      '<div class="dd-sum">' + taskTimelineHtml(evs) + "</div>" +
+    "</div>";
   }
 
-  container.innerHTML = `
-    <h3 style="font-size:16px; font-weight:800; color:#0f172a; margin-bottom:12px;">【科研研报交付】关于“${query}”的结构化推导演进报告</h3>
-    <p style="margin-bottom:10px;"><strong>1. 架构机理与演进：</strong>调研表明长上下文场景下，动态选择性状态空间 (Selective SSM) 相比自注意力机制实现了内存与时间复杂度的 O(N) 线性化，并在跨硬件并行前缀扫描机制下显著削减 DRAM 墙瓶颈 <b style="color:var(--accent);">[1]</b>。</p>
-    <p style="margin-bottom:14px;"><strong>2. 混合架构实证评测：</strong>在吞吐评测中，融合注意力与状态空间的混合架构在大窗口（128k+）下实现持续稳定的解码速度，相对提升达 3.5× ~ 4.2×，并在长程针中捞针（Needle-in-a-Haystack）测试中保持 99% 以上的高召回 <b style="color:var(--accent);">[2]</b>。</p>
-    <hr style="margin:16px 0; border:none; border-top:1px solid var(--border);">
-    <h4 style="font-size:13px; color:var(--muted); margin-bottom:8px;">权威文献与证据溯源链 (Verified Citations & Claims):</h4>
-    <div style="font-size:12px; color:#475569; display:flex; flex-direction:column; gap:6px;">
-      ${refList}
-    </div>
-  `;
+  svg.addEventListener("click", function (e) {
+    const g = e.target.closest ? e.target.closest("[data-task]") : null;
+    if (g) show(g.getAttribute("data-task"));
+  });
+  svg.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const g = e.target.closest ? e.target.closest("[data-task]") : null;
+    if (!g) return;
+    e.preventDefault();
+    show(g.getAttribute("data-task"));
+  });
+
+  if (state.selectedTask) show(state.selectedTask);
 }
 
-function switchTab(tabId, btn) {
-  document.querySelectorAll('.tabbar button').forEach(b => b.classList.remove('on'));
-  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-  btn.classList.add('on');
-  document.getElementById(tabId).classList.add('active');
+function taskTimelineHtml(evs) {
+  if (!evs.length) return '<span style="color:var(--ink-3)">该任务暂无关联事件</span>';
+  return '<div style="font-size:11.5px;color:var(--ink-3);margin-bottom:5px">任务事件序列</div>' +
+    evs.map(function (e) {
+      return '<div style="display:grid;grid-template-columns:64px 130px 1fr;gap:10px;padding:2px 0;' +
+        'border-bottom:1px solid var(--line);font-size:11.5px">' +
+        '<span class="mono" style="color:var(--ink-3)">' + esc(fmtClock(e.timestamp)) + "</span>" +
+        '<span class="mono">' + esc(e.event_type) + "</span>" +
+        '<span style="color:var(--ink-2)">' + esc(truncate(metaSummary(e.metadata), 90)) + "</span>" +
+      "</div>";
+    }).join("");
 }
 
-// 页面加载即初始化
-document.addEventListener('DOMContentLoaded', loadRuns);
+/* ============================================================
+   8. 面板：瀑布时间线
+   ============================================================ */
+function paneWaterfall(d) {
+  const events = (d.events || []).slice().sort(function (a, b) {
+    return String(a.timestamp).localeCompare(String(b.timestamp)) || (a.seq || 0) - (b.seq || 0);
+  });
+  if (!events.length) return '<div class="state"><div class="big">无事件</div>本次运行没有审计事件</div>';
+
+  /* 节点耗时聚合：与上方阶段流水线同口径（累计 duration 与首末事件跨度取较大者） */
+  const agg = {};
+  events.forEach(function (e) {
+    const n = String(e.node || "(无节点)").toLowerCase();
+    if (!agg[n]) agg[n] = { ms: 0, count: 0, first: e.timestamp, last: e.timestamp };
+    const a = agg[n];
+    a.ms += Number(e.duration_ms) || 0;
+    a.count += 1;
+    if (e.timestamp < a.first) a.first = e.timestamp;
+    if (e.timestamp > a.last) a.last = e.timestamp;
+  });
+  const rows = Object.keys(agg).map(function (n) {
+    const a = agg[n];
+    return { node: n, ms: Math.max(a.ms, new Date(a.last) - new Date(a.first)), count: a.count };
+  }).sort(function (a, b) { return b.ms - a.ms; });
+  const maxMs = Math.max.apply(null, rows.map(function (r) { return r.ms; }).concat([1]));
+
+  const noTiming = rows.every(function (r) { return r.ms <= 0; });
+  const bars = noTiming
+    ? '<div class="state" style="padding:18px"><div class="big">事件未记录耗时</div>' +
+      "本次运行的 duration_ms 全为 0，无法给出节点耗时排名</div>"
+    : rows.map(function (r) {
+        const pct = Math.max((r.ms / maxMs) * 100, 1.5);
+        return '<div class="nbar">' +
+          '<span class="nbar-name">' + esc(r.node) + "</span>" +
+          '<span class="nbar-track"><span class="nbar-fill" style="width:' + pct.toFixed(1) +
+            "%;background:" + nodeColor(r.node) + '"></span></span>' +
+          '<span class="nbar-val">' + esc(fmtDur(r.ms)) + "</span>" +
+        "</div>";
+      }).join("");
+
+  /* 事件瀑布：按时刻定位，宽度取真实 duration；duration 为 0 时画时刻刻度 */
+  const t0 = new Date(events[0].timestamp).getTime();
+  const t1 = new Date(events[events.length - 1].timestamp).getTime();
+  const span = Math.max(t1 - t0, 1);
+  /* 时间戳高度集中（例如全部落在同一毫秒）时按事件顺序等距展开，否则按真实时刻定位 */
+  const dense = span < 50;
+  const total = events.length;
+
+  const wf = events.map(function (e, idx) {
+    const ts = new Date(e.timestamp).getTime();
+    const left = dense ? (idx / Math.max(total - 1, 1)) * 100 : ((ts - t0) / span) * 100;
+    const dur = Number(e.duration_ms) || 0;
+    const w = dense ? 0 : Math.max((dur / span) * 100, 0);
+    const c = nodeColor(e.node);
+    const inner = w >= 0.4
+      ? '<span class="wf-bar" style="left:' + left.toFixed(2) + "%;width:" + w.toFixed(2) + "%;background:" + c + '"></span>'
+      : '<span class="wf-tick" style="left:' + left.toFixed(2) + "%;background:" + c + '"></span>';
+    const err = e.error ? ' style="background:var(--err-bg)"' : "";
+    /* 标签靠右时改为向左排布，避免溢出容器 */
+    const endPct = left + (w >= 0.4 ? w : 0.6);
+    const flip = endPct > 70;
+    const labelStyle = flip
+      ? "right:" + (100 - left).toFixed(2) + "%;padding-right:6px;text-align:right"
+      : "left:" + endPct.toFixed(2) + "%;padding-left:6px";
+    return '<div class="wf-row"' + err + ">" +
+      '<span class="wf-t">' + esc(fmtClock(e.timestamp)) + "</span>" +
+      '<span class="wf-node" title="' + esc(e.node) + '">' + esc(truncate(e.node, 12)) + "</span>" +
+      '<span class="wf-track" title="' + esc(e.event_type + (dur ? " · " + fmtDur(dur) : "")) + '">' +
+        inner +
+        '<span class="wf-label" style="' + labelStyle + '">' +
+          esc(e.event_type) + (e.task_id ? " <b>· " + esc(e.task_id) + "</b>" : "") +
+        "</span>" +
+      "</span>" +
+    "</div>";
+  }).join("");
+
+  const legendNodes = rows.map(function (r) { return r.node; });
+  const legend = legendNodes.map(function (n) {
+    return '<span><i style="background:' + nodeColor(n) + '"></i>' + esc(n) + "</span>";
+  }).join("");
+
+  return '<div class="section-label">各节点耗时<small>与上方流水线同口径：累计 duration 与首末事件跨度取较大者，降序排列</small></div>' +
+    '<div class="node-bars">' + bars + "</div>" +
+    '<div class="section-label">事件瀑布' +
+      (dense
+        ? "<small>本批事件时间戳集中在 " + esc(span) + "ms 内，横轴改为按事件顺序等距展开</small>"
+        : "<small>横轴为相对时刻；有耗时的事件画成条，零耗时的画成刻度</small>") + "</div>" +
+    '<div class="waterfall">' +
+      '<div class="wf-axis">' +
+        (dense
+          ? "<span>按事件顺序 →</span><span>共 " + total + " 条事件</span><span>时间戳跨度 " + esc(span) + "ms</span>"
+          : "<span>0ms</span><span>" + esc(fmtDur(span / 2)) + "</span><span>" + esc(fmtDur(span)) + "</span>") +
+      "</div>" +
+      wf +
+    "</div>" +
+    '<div class="legend">' + legend + "</div>";
+}
+
+/* ============================================================
+   9. 面板：检索迭代
+   ============================================================ */
+function paneRag(d) {
+  const events = d.events || [];
+  /* 直接从事件取，可带上事件本身的 task_id（后端 rag 聚合只回传 metadata） */
+  const hops = events.filter(function (e) { return e.event_type === "multi_hop_iteration"; })
+    .map(function (e) {
+      return Object.assign({}, e.metadata || {}, { task_id: e.task_id || (e.metadata || {}).task_id });
+    });
+  const single = events.filter(function (e) { return e.event_type === "rag_iteration"; })
+    .map(function (e) { return Object.assign({}, e.metadata || {}, { task_id: e.task_id }); });
+
+  if (!hops.length && !single.length) {
+    return '<div class="state"><div class="big">无检索迭代记录</div>本次运行没有 multi_hop_iteration / rag_iteration 事件</div>';
+  }
+
+  let html = "";
+  if (hops.length) {
+    html += '<div class="section-label">多跳检索迭代<small>每一跳记录探测到的盲区、改写后的查询与收敛决策</small></div>';
+    html += '<div class="hops">' + hops.map(function (h, i) {
+      const sufficient = h.is_sufficient === true || String(h.action).toUpperCase() === "STOP";
+      const cls = sufficient ? "ok" : "run";
+      const gl = sufficient ? "●" : "◐";
+      const fields = [
+        ["对应任务", h.task_id ? '<code>' + esc(h.task_id) + "</code>" : "—"],
+        ["盲区探测", esc(h.gap || "—")],
+        ["改写查询", h.next_query || h.query ? '<code>' + esc(h.next_query || h.query) + "</code>" : "—"],
+        ["新增证据", h.new_evidence_count === undefined ? "—" : esc(String(h.new_evidence_count)) + " 条"],
+        ["收敛判定", sufficient ? "已充分（SUFFICIENT）" : "继续下一跳（CONTINUE）"],
+        ["执行动作", '<code>' + esc(h.action || "—") + "</code>"],
+      ];
+      if (h.stop_reason) fields.push(["停止原因", '<code>' + esc(h.stop_reason) + "</code>"]);
+
+      return '<div class="hop">' +
+        '<div class="hop-rail"><span class="hop-dot ' + cls + '">' + esc(gl) + "</span>" +
+          (i < hops.length - 1 ? '<span class="hop-line"></span>' : "") +
+        "</div>" +
+        '<div class="hop-body">' +
+          '<div class="hop-title"><strong>第 ' + esc(String(h.iteration === undefined ? i + 1 : h.iteration)) + " 跳</strong>" +
+            '<span class="tag ' + cls + '"><span class="gl">' + esc(gl) + "</span>" +
+            (sufficient ? "已收敛" : "继续检索") + "</span></div>" +
+          '<dl class="hop-grid">' + fields.map(function (f) {
+            return '<div class="hop-field"><dt>' + esc(f[0]) + "</dt><dd>" + f[1] + "</dd></div>";
+          }).join("") + "</dl>" +
+        "</div>" +
+      "</div>";
+    }).join("") + "</div>";
+  }
+
+  if (single.length) {
+    html += '<div class="section-label" style="margin-top:18px">单轮召回<small>三通道各自的召回数量</small></div>' +
+      '<div class="table-wrap"><table><thead><tr>' +
+      "<th>#</th><th>学术</th><th>联网</th><th>本地</th><th>充分性</th><th>查询改写</th>" +
+      "</tr></thead><tbody>" +
+      single.map(function (r, i) {
+        return "<tr><td>" + (i + 1) + "</td>" +
+          '<td class="num">' + esc(r.academic === undefined ? "—" : r.academic) + "</td>" +
+          '<td class="num">' + esc(r.web === undefined ? "—" : r.web) + "</td>" +
+          '<td class="num">' + esc(r.local === undefined ? "—" : r.local) + "</td>" +
+          "<td>" + (r.is_sufficient === undefined ? "—" : (r.is_sufficient ? "充分" : "不足")) + "</td>" +
+          "<td>" + (r.query_rewrite ? esc(r.query_rewrite) : "—") + "</td></tr>";
+      }).join("") + "</tbody></table></div>";
+  }
+  return html;
+}
+
+/* ============================================================
+   10. 面板：证据溯源
+   ============================================================ */
+function paneEvidence(d) {
+  const trace = d.trace || [];
+  if (!trace.length) {
+    return '<div class="state"><div class="big">无证据登记</div>本次运行没有 evidence_registered 事件</div>';
+  }
+  return '<div class="section-label">证据溯源链<small>审计事件摘要，原文以业务库为准</small></div>' +
+    '<div class="table-wrap"><table><thead><tr>' +
+      '<th class="narrow">#</th><th>证据 ID</th><th>来源 ID</th><th>来源类型</th>' +
+      '<th>核验状态</th><th>关联声明</th><th>归属任务</th>' +
+    "</tr></thead><tbody>" +
+    trace.map(function (t, i) {
+      return "<tr>" +
+        '<td class="narrow num">' + (i + 1) + "</td>" +
+        '<td class="mono">' + esc(t.evidence_id || "—") + "</td>" +
+        '<td class="mono">' + esc(t.source_id || "—") + "</td>" +
+        "<td>" + esc(t.source_type || "—") + "</td>" +
+        "<td>" + tagHtml(t.verification_status || "UNKNOWN") + "</td>" +
+        '<td class="mono">' + esc(t.claim_id || "—") + "</td>" +
+        '<td class="mono">' + esc(t.task_id || "—") + "</td>" +
+      "</tr>";
+    }).join("") + "</tbody></table></div>";
+}
+
+/* ============================================================
+   11. 面板：事件流
+   ============================================================ */
+function paneEvents(d) {
+  const events = d.events || [];
+  if (!events.length) return '<div class="state"><div class="big">无事件</div>本次运行没有审计事件</div>';
+
+  const nodes = Array.from(new Set(events.map(function (e) { return String(e.node || "(无节点)"); }))).sort();
+  const types = Array.from(new Set(events.map(function (e) { return String(e.event_type || ""); }))).sort();
+
+  const opts = function (arr, cur, all) {
+    return '<option value="">' + all + "</option>" + arr.map(function (v) {
+      return '<option value="' + esc(v) + '"' + (cur === v ? " selected" : "") + ">" + esc(v) + "</option>";
+    }).join("");
+  };
+
+  /* 只给异常事件着色与打标，成功事件不重复占用视觉带宽 */
+  const rows = filteredEvents(d).map(function (e) {
+    const bad = String(e.status).toUpperCase() === "FAILED";
+    const errText = e.error
+      ? (typeof e.error === "object" ? (e.error.type || "") + " " + (e.error.message || "") : String(e.error))
+      : "";
+    return '<tr class="' + (bad ? "row-bad" : "") + '">' +
+      '<td class="narrow mono">' + esc(fmtClock(e.timestamp)) + "</td>" +
+      '<td class="narrow"><span class="nodedot" style="background:' + nodeColor(e.node) + '"></span>' +
+        esc(e.node || "—") + "</td>" +
+      '<td class="narrow mono">' + (bad ? '<span class="failmark">✕</span>' : "") + esc(e.event_type) + "</td>" +
+      '<td class="narrow mono">' + esc(e.task_id || "—") + "</td>" +
+      '<td class="num narrow">' + esc(e.duration_ms ? fmtDur(e.duration_ms) : "—") + "</td>" +
+      "<td>" + (errText ? '<span class="errtxt">' + esc(truncate(errText, 70)) + "</span><br>" : "") +
+        '<span style="color:var(--ink-2)">' + esc(truncate(metaSummary(e.metadata) || "—", 110)) + "</span>" +
+      "</td>" +
+    "</tr>";
+  }).join("");
+
+  const shown = filteredEvents(d).length;
+
+  return '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:11px;align-items:center">' +
+      '<input id="evt-kw" class="btn" style="width:200px;height:30px;text-align:left;font-weight:400" ' +
+        'type="search" placeholder="搜索事件内容 / metadata" value="' + esc(state.evtFilter.kw) + '">' +
+      '<select id="evt-node" class="btn">' + opts(nodes, state.evtFilter.node, "全部节点") + "</select>" +
+      '<select id="evt-type" class="btn">' + opts(types, state.evtFilter.type, "全部事件类型") + "</select>" +
+      '<button type="button" class="btn" id="evt-reset">重置筛选</button>' +
+      '<span style="margin-left:auto;font-size:11.5px;color:var(--ink-3)" class="num">' +
+        shown + " / " + events.length + " 条</span>" +
+    "</div>" +
+    '<div class="table-wrap"><table><thead><tr>' +
+      '<th class="narrow">时刻</th><th class="narrow">节点</th><th class="narrow">事件类型</th>' +
+      '<th class="narrow">任务</th><th class="narrow">耗时</th><th>摘要</th>' +
+    "</tr></thead><tbody>" + (rows || '<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--ink-3)">无匹配事件</td></tr>') +
+    "</tbody></table></div>";
+}
+
+function filteredEvents(d) {
+  const f = state.evtFilter;
+  const kw = f.kw.trim().toLowerCase();
+  return (d.events || []).filter(function (e) {
+    if (f.node && String(e.node || "(无节点)") !== f.node) return false;
+    if (f.type && String(e.event_type) !== f.type) return false;
+    if (!kw) return true;
+    const hay = [e.event_type, e.node, e.task_id, metaSummary(e.metadata),
+                 typeof e.error === "object" ? JSON.stringify(e.error) : String(e.error || "")]
+      .join(" ").toLowerCase();
+    return hay.indexOf(kw) >= 0;
+  });
+}
+
+function bindEvents(d) {
+  const kw = document.getElementById("evt-kw");
+  const nodeSel = document.getElementById("evt-node");
+  const typeSel = document.getElementById("evt-type");
+  const reset = document.getElementById("evt-reset");
+  const host = document.getElementById("panes");
+  if (!host) return;
+
+  const rerender = function () {
+    host.innerHTML = '<div class="pane on">' + paneEvents(d) + "</div>";
+    bindEvents(d);
+    const again = document.getElementById("evt-kw");
+    if (again) { again.focus(); again.setSelectionRange(again.value.length, again.value.length); }
+  };
+
+  if (kw) kw.addEventListener("input", function () { state.evtFilter.kw = kw.value; rerender(); });
+  if (nodeSel) nodeSel.addEventListener("change", function () { state.evtFilter.node = nodeSel.value; rerender(); });
+  if (typeSel) typeSel.addEventListener("change", function () { state.evtFilter.type = typeSel.value; rerender(); });
+  if (reset) reset.addEventListener("click", function () {
+    state.evtFilter = { node: "", type: "", kw: "" };
+    rerender();
+  });
+}
+
+/* ============================================================
+   12. 事件绑定与启动
+   ============================================================ */
+function bindGlobal() {
+  const list = document.getElementById("run-list");
+  if (list) {
+    list.addEventListener("click", function (e) {
+      const item = e.target.closest ? e.target.closest("[data-run]") : null;
+      if (!item) return;
+      const id = item.getAttribute("data-run");
+      if (id && id !== state.currentId) selectRun(id);
+    });
+  }
+
+  const filters = document.getElementById("quick-filters");
+  if (filters) {
+    filters.addEventListener("click", function (e) {
+      const chip = e.target.closest ? e.target.closest("[data-quick]") : null;
+      if (!chip) return;
+      state.quick = chip.getAttribute("data-quick") || "";
+      renderQuickFilters();
+      renderRunList();
+    });
+  }
+
+  const search = document.getElementById("q");
+  if (search) {
+    search.addEventListener("input", function () { state.keyword = search.value; renderRunList(); });
+  }
+
+  const sel = document.getElementById("status-filter");
+  if (sel) {
+    sel.addEventListener("change", function () {
+      state.quick = sel.value;
+      renderQuickFilters();
+      renderRunList();
+    });
+  }
+
+  const refresh = document.getElementById("btn-refresh");
+  if (refresh) refresh.addEventListener("click", function () { loadRuns(); });
+
+  window.addEventListener("hashchange", function () {
+    const id = (location.hash || "").replace(/^#\/?/, "");
+    if (id && id !== state.currentId) selectRun(id);
+  });
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+  renderQuickFilters();
+  bindGlobal();
+  loadRuns();
+});
 </script>
 </body>
 </html>
