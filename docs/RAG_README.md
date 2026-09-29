@@ -1,8 +1,8 @@
-# Clawgent RAG System README
+# ClawAgent RAG System README
 
 ## 1. 系统定位
 
-Clawgent 的 RAG 子系统用于为主 Agent 提供企业/校园知识库检索能力。
+ClawAgent 的 RAG 子系统用于为主 Agent 提供企业/校园知识库检索能力。
 它不是独立问答服务，而是以工具的形式接入 LangGraph 主循环，在需要依据内部文档回答问题时参与决策。
 
 当前实现采用**证据驱动的结构化 Agentic RAG**：

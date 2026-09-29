@@ -1,6 +1,6 @@
 <div align="center">
 
-# Clawgent
+# ClawAgent
 
 ### **科研智能助手 · 可溯源的调研与知识库问答**
 
@@ -12,7 +12,7 @@
 
 ## 📖 简介
 
-Clawgent 是一个面向科研场景的智能体运行时，基于 **LangGraph** 构建，围绕三条主线：
+ClawAgent 是一个面向科研场景的智能体运行时，基于 **LangGraph** 构建，围绕三条主线：
 
 - **📚 学术检索与私有知识库** —— 通过原生 MCP 接入 arXiv / Semantic Scholar / PubMed 等学术数据源；本地知识库走 Agentic RAG（混合召回 + 多跳推理），所有结论强制标注来源，可溯源不编造。
 - **🔬 多智能体调研** —— LangGraph 子图驱动 Planner→并发 Researcher→Critic 交叉验证→Judge 评审→结构化报告，证据缺口自动补检索。
@@ -47,7 +47,7 @@ Clawgent 是一个面向科研场景的智能体运行时，基于 **LangGraph**
 
 ```bash
 git clone https://github.com/Imzhou-tju/Agent-MVP
-cd Clawgent
+cd ClawAgent
 
 python -m venv venv
 source venv/bin/activate   # Windows: venv\Scripts\activate
@@ -229,7 +229,7 @@ START → planner ──[Send fan-out]──▶ researcher×N ──▶ aggregat
 ## 📁 目录结构
 
 ```
-Clawgent/
+ClawAgent/
 ├── clawgent/
 │   └── core/
 │       ├── agent.py             # 主 Agent 循环（LangGraph 状态图）
@@ -289,6 +289,6 @@ Clawgent/
 
 <div align="center">
 
-**👾 Clawgent · 科研智能助手 · 可溯源的调研与知识库问答**
+**👾 ClawAgent · 科研智能助手 · 可溯源的调研与知识库问答**
 
 </div>
