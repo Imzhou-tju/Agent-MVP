@@ -39,7 +39,7 @@ ClawAgent 是一个面向科研场景的智能体运行时，基于 **LangGraph*
 | **学术源 MCP 接入** | `langchain-mcp-adapters` 接入 arXiv / Semantic Scholar / PubMed，与 Tavily、本地 RAG 三路合并去重 |
 | **可靠性降级** | 重试 → 方法级熔断器（连续失败 3 次开闸）→ 升级模型 → SQLite 死信队列（重试 3 次）→ 降级返回 |
 | **全链路审计** | 统一 `AuditEvent`（12 字段），7 类共 20+ 事件，异步落 JSONL，写入失败不影响主流程 |
-| **只读 Dashboard** | JSONL 增量索引到 SQLite，展示 Run 列表 / 时间线 / 任务 DAG / 证据溯源 / 多跳 / 可靠性统计 |
+| **只读 Dashboard** | JSONL 增量索引到 SQLite，展示 Run 列表 / 总览指标 / 节点流水线 / 任务拓扑 DAG / 证据溯源 / 事件流 |
 | **Shell 沙盒** | 命令在 `python:3.10-slim` 容器内执行，路径经 `os.path.realpath` 校验防软链接越权 |
 | **多层记忆** | 长期画像(Markdown) + 近期摘要(按回合裁剪) + Entity Ledger(全局硬约束/已确认实体/未决问题) |
 | **多模型适配** | OpenAI 兼容(OpenAI / 阿里云 / 腾讯 / Z.AI) / Anthropic / Ollama 工厂模式统一接入 |
@@ -92,7 +92,11 @@ python -m entry.dashboard   # 另开窗口：只读 Dashboard（默认 http://12
 
 ![监控终端](docs/monitor.png)
 
-Dashboard 提供一次 Research Run 的完整追踪：Run 列表 / 执行时间线 / 任务 DAG / 证据溯源 / RAG 多跳 / 可靠性统计，只读不改调研状态。详见 [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md)。
+Dashboard 提供一次 Research Run 的完整追踪：Run 列表 / 总览指标（耗时、任务闭环、证据数、核验率、多跳轮次、可靠性事件）/ 节点流水线 / 任务拓扑 DAG / 检索迭代 / 证据溯源 / 事件流，只读不改调研状态。
+
+![Dashboard 运行视图](docs/dashboard.png)
+
+详见 [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md)。
 
 ### 4️⃣ 可选：开启学术检索
 
