@@ -79,15 +79,32 @@ python -m entry.dashboard --port 9000    # 指定端口
 
 页面（`clawgent/dashboard/static/index.html`，单页无构建）：
 
-- **Run 列表**：Run ID / 时间 / 耗时 / 最终状态 / 任务数 / 证据数 / 裁决，支持按状态过滤。
-- **Run 总览**：耗时、任务完成、LLM/Tool 调用、Retry/Fallback、证据/来源、声明支撑分布、Judge 决策。
-- **执行时间线**：按 timestamp 展示事件，含 node / task / status / duration / error。
-- **任务 DAG**：从 `task_created` 还原依赖关系，节点标 PENDING/COMPLETED/FAILED/REOPENED/SKIPPED。
-- **证据溯源**：`evidence_registered` 事件的 evidence_id / source_id / verification_status / claim_id。
-- **RAG / 多跳**：单轮检索各路数量 + 多跳每轮「迭代 | 查询 | 新增证据 | 决策 | 停止原因」。
-- **可靠性**：Retry / Fallback / 熔断次数。
+信息层级自上而下依次收起：Run 头 → 核心指标 → 阶段流水线 → 下钻页签。
 
-HTTP API：`/api/runs`（列表）、`/api/runs/<run_id>`（详情）、`/api/refresh`（增量刷新）。
+- **Run 列表（左栏）**：Run ID / 调研主题 / 时间 / 耗时 / 任务数 / 证据数 / 最终状态，支持状态筛选与关键词搜索。
+- **Run 头**：调研主题、Run ID、线程、起止时间、Judge 裁决、终止原因、声明条数。
+- **核心指标**：总耗时、任务闭环、证据/来源、声明支撑率（无声明数据时退回证据核验率）、多跳轮次、可靠性事件。
+- **阶段流水线**：planner / scheduler / researcher / aggregator / review / repair / judge / compiler 八段，
+  状态与耗时全部由事件推导（无事件的阶段显示「未执行」），不写死。
+- **页签 1 · 任务拓扑**：从 `task_created` 还原依赖，按最长路径分层用 SVG 绘制；节点标
+  PENDING/COMPLETED/FAILED/REOPENED/SKIPPED，点击展开该任务的工单详情与事件序列。
+- **页签 2 · 瀑布时间线**：上方为各节点耗时排名，下方为事件瀑布（按时刻定位，有 duration 画条、
+  无 duration 画刻度）。当事件时间戳集中在 50ms 内（例如同一批写入）时，横轴改为按事件顺序等距展开，
+  并在标题标注实际跨度。
+- **页签 3 · 检索迭代**：多跳每轮「对应任务 | 盲区探测 | 改写查询 | 新增证据 | 收敛判定 | 执行动作 | 停止原因」，
+  以及单轮三通道召回数量。
+- **页签 4 · 证据溯源**：`evidence_registered` 事件的 evidence_id / source_id / source_type /
+  verification_status / claim_id / task_id。
+- **页签 5 · 事件流**：全量事件表，支持按节点、事件类型、关键词（含 metadata 与 error）筛选。
+
+视觉与可读性约定：颜色只承载状态语义（绿=完成、蓝=进行中、琥珀=需关注、红=失败、灰=未执行/未知），
+状态标签同时带符号，不依赖颜色单独表意；无 `duration_ms` 数据时显示「—」并说明原因，不填造数值。
+
+HTTP API：`/api/runs`（列表）、`/api/runs/<run_id>`（详情）、`/api/runs/<run_id>/dag`（拓扑图）、
+`/api/refresh`（增量刷新）。
+
+**离线预览**：直接用浏览器打开该 HTML 时，`fetch` 因 `file://` 协议失败，页面会回退到内置示例数据
+并在顶部显示提示条；启动服务后刷新即自动切换为真实审计数据。
 
 ## 6. 数据存储与边界
 
