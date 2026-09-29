@@ -474,7 +474,6 @@
     <div class="logo-icon">C</div>
     ClawAgent Research 多智能体全景可观测看板
   </h1>
-  <span class="tag">端到端全链路闭环 · 100% 审计追溯</span>
   <div class="controls">
     <select id="status-filter" onchange="loadRuns()">
       <option value="">全部状态</option>
@@ -522,7 +521,7 @@
       </div>
       <div class="stat">
         <div class="k">声明可信度与审计</div>
-        <div class="v" id="kpi-citation" style="color:var(--green)">100% 支撑 (已程序化核验)</div>
+        <div class="v" id="kpi-citation">-</div>
       </div>
     </div>
 
@@ -702,19 +701,63 @@ function renderRunDetail(data) {
   badge.innerText = status;
   badge.className = `badge ${status}`;
 
-  const durVal = run.total_duration || summary.total_duration || 0;
-  const duration = durVal > 1000 ? `${(durVal / 1000).toFixed(1)}s` : (durVal > 0 ? `${durVal}ms` : '1.4s');
+  const durVal = Number(run.total_duration ?? summary.total_duration ?? 0);
+  const duration = durVal > 1000 ? `${(durVal / 1000).toFixed(1)}s` : (durVal > 0 ? `${durVal}ms` : '0ms');
   document.getElementById('kpi-duration').innerText = duration;
 
-  const totalTasks = summary.total_tasks || run.total_tasks || (dagGraph.nodes ? dagGraph.nodes.length : 2);
-  const completedTasks = summary.completed_tasks || run.completed_tasks || totalTasks;
+  const totalTasks = Number(summary.total_tasks ?? run.total_tasks ?? (dagGraph.nodes ? dagGraph.nodes.length : 0));
+  const completedTasks = Number(summary.completed_tasks ?? run.completed_tasks ?? 0);
   document.getElementById('kpi-tasks').innerText = `${completedTasks} / ${totalTasks} 任务闭环`;
 
-  const evCount = summary.evidence_count || run.evidence_count || trace.length || 2;
+  const evCount = Number(summary.evidence_count ?? run.evidence_count ?? (trace ? trace.length : 0));
   document.getElementById('kpi-evidences').innerText = `${evCount} 篇权威切片`;
   
-  const verifiedCount = trace.filter(t => t.verification_status === 'VERIFIED').length || trace.length || evCount || 2;
-  document.getElementById('kpi-citation').innerText = `100% 支撑 (${verifiedCount} 条声明已程序化核验)`;
+  // 声明可信度与审计真实动态判定
+  const supp = Number(summary.supported_claims ?? run.supported_claims ?? 0);
+  const part = Number(summary.partial_claims ?? run.partial_claims ?? 0);
+  const unsupp = Number(summary.unsupported_claims ?? run.unsupported_claims ?? 0);
+  const contra = Number(summary.contradicted_claims ?? run.contradicted_claims ?? 0);
+  const totalClaims = supp + part + unsupp + contra;
+
+  const citationEl = document.getElementById('kpi-citation');
+  if (totalClaims > 0) {
+    const rate = Math.round((supp / totalClaims) * 100);
+    if (rate === 100) {
+      citationEl.style.color = 'var(--green)';
+      citationEl.innerText = `100% 支撑 (${supp}/${totalClaims} 条程序化核验)`;
+    } else if (rate >= 50) {
+      citationEl.style.color = 'var(--amber)';
+      citationEl.innerText = `${rate}% 支撑 (${supp}/${totalClaims} 通过, ${unsupp + contra} 未通过)`;
+    } else {
+      citationEl.style.color = 'var(--red)';
+      citationEl.innerText = `${rate}% 支撑 (${supp}/${totalClaims} 通过, ${unsupp + contra} 驳回)`;
+    }
+  } else if (trace && trace.length > 0) {
+    const verifiedTrace = trace.filter(t => t.verification_status === 'VERIFIED').length;
+    const pendingTrace = trace.filter(t => !t.verification_status || t.verification_status === 'PENDING').length;
+    if (verifiedTrace > 0) {
+      const rate = Math.round((verifiedTrace / trace.length) * 100);
+      citationEl.style.color = rate === 100 ? 'var(--green)' : 'var(--amber)';
+      citationEl.innerText = `${rate}% 溯源 (${verifiedTrace}/${trace.length} 条凭证已核验)`;
+    } else if (pendingTrace > 0) {
+      citationEl.style.color = 'var(--amber)';
+      citationEl.innerText = `待质检核验 (${pendingTrace} 条切片凭证待审核)`;
+    } else {
+      citationEl.style.color = 'var(--red)';
+      citationEl.innerText = `0% 溯源 (切片凭证未通过审核)`;
+    }
+  } else {
+    if (status === 'RUNNING') {
+      citationEl.style.color = 'var(--accent)';
+      citationEl.innerText = '审计中 · 待质检 (暂无核验声明)';
+    } else if (status === 'FAILED') {
+      citationEl.style.color = 'var(--red)';
+      citationEl.innerText = '未通过 (任务异常中断, 0 声明)';
+    } else {
+      citationEl.style.color = 'var(--muted)';
+      citationEl.innerText = '未审计 (0 条有效证据)';
+    }
+  }
 
   // 2. 流水线阶段步进器 (Macro Stepper) 动态状态联动
   renderDynamicPipelineStepper(status, durVal);
