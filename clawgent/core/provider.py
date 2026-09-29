@@ -47,6 +47,47 @@ class MockChatModel(BaseChatModel):
             f"3. **多智能体溯源结论**：\n"
             f"   - 本轮推导已通过 Critic 交叉核验，3 项核心数据声明均已锚定原生 arXiv 论文章节，可信度评级：[VERIFIED]。"
         )
+
+        # 联动写入高保真 Mock 审计事件，使 monitor.py 实时渲染卡片
+        try:
+            from .logger import audit_logger
+            thread_id = "local_geek_master"
+
+            if any(k in user_query.lower() for k in ["python", "version", "shell", "环境", "系统"]):
+                audit_logger.log_event(
+                    thread_id=thread_id,
+                    event="tool_call",
+                    tool="execute_office_shell",
+                    args={"command": user_query if len(user_query) < 40 else "python --version"}
+                )
+                audit_logger.log_event(
+                    thread_id=thread_id,
+                    event="tool_result",
+                    tool="execute_office_shell",
+                    result_summary="● 当前系统: Linux (Docker Sandbox)\n● 执行命令: `python --version`\n● 退出码 (Exit Code): 0\n\n[STDOUT]\nPython 3.10.19"
+                )
+            else:
+                audit_logger.log_event(
+                    thread_id=thread_id,
+                    event="tool_call",
+                    tool="search_academic",
+                    args={"query": user_query[:40] or "Mamba SSM architecture", "max_results": 3}
+                )
+                audit_logger.log_event(
+                    thread_id=thread_id,
+                    event="tool_result",
+                    tool="search_academic",
+                    result_summary="匹配到 3 篇核心 arXiv 顶会论著：\n1. arXiv:2312.00752: Gu & Dao, 'Mamba: Linear-Time Sequence Modeling...'\n2. arXiv:2403.19887: 'Jamba: A Hybrid Transformer-Mamba Model'\n3. 溯源评级: [VERIFIED]"
+                )
+
+            audit_logger.log_event(
+                thread_id=thread_id,
+                event="system_action",
+                content="Critic 验证节点通过：证据链已闭环，完成多智能体状态机流转。"
+            )
+        except Exception:
+            pass
+
         return ChatResult(generations=[ChatGeneration(message=AIMessage(content=response_text))])
 
     @property
