@@ -39,11 +39,11 @@ def print_header():
     content = Text(justify="center")
     content.append("\n  Live Stream  \n\n", style="bold white italic")
     content.append(monster + "\n\n", style="color(141)")
-    content.append("   What is Clawgent doing?    \n", style="dim white italic") 
+    content.append("   What is ClawAgent doing?    \n", style="dim white italic") 
 
     panel = Panel(
         Align.center(content),  
-        title="[bold color(141)] Clawgent [/bold color(141)]",
+        title="[bold color(141)] ClawAgent [/bold color(141)]",
         title_align="left",
         border_style="color(141)",
         box=box.ROUNDED,
@@ -54,16 +54,19 @@ def print_header():
     console.print(Align.center(panel))
     console.print()
 
-def tail_f(filepath):
-    """文件末尾监听"""
+def tail_f(filepath, history_lines: int = 8):
+    """文件监听：启动时先回放最近已有事件，随后保持监听"""
     if not os.path.exists(filepath):
         console.print(f"[warning]⏳ 等待日志文件生成...[/warning]")
         while not os.path.exists(filepath):
             time.sleep(0.5)
             
     with open(filepath, 'r', encoding='utf-8') as f:
-        f.seek(0, 2)
         print_header()
+        lines = f.readlines()
+        for line in lines[-history_lines:]:
+            if line.strip():
+                yield line
         while True:
             line = f.readline()
             if not line:
@@ -106,6 +109,11 @@ def render_event(line: str):
         elif event == "system_action":
             action = data.get("content", "")
             console.print(f"{prefix}[warning]✦ 底层状态机：{action}[/warning]")
+
+        elif event == "ai_message":
+            msg = data.get("content", "")
+            summary = msg[:160].replace("\n", " ") + ("..." if len(msg) > 160 else "")
+            console.print(f"{prefix}[ai_message]💬 研报与回复落盘：{summary}[/ai_message]")
             
     except: pass
 
