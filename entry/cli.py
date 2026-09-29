@@ -172,7 +172,7 @@ def run_agent():
     if not provider or not model:
         _show_boot_error()
         raise typer.Exit()
-    if provider != "ollama":
+    if provider not in ["ollama", "mock"]:
         if provider in ["openai", "aliyun", "z.ai", "tencent", "other"]: 
             if not os.getenv("OPENAI_API_KEY"):
                 _show_boot_error()
