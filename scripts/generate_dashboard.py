@@ -329,7 +329,7 @@ html_content = f"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CyberClaw 多智能体科研可观测 Dashboard</title>
+<title>ClawAgent 多智能体科研可观测 Dashboard</title>
 <style>
   :root {{
     --bg: #f8fafc;
@@ -781,7 +781,7 @@ html_content = f"""<!DOCTYPE html>
 <header>
   <h1>
     <div class="logo-icon">C</div>
-    CyberClaw Research 多智能体全景可观测看板
+    ClawAgent Research 多智能体全景可观测看板
   </h1>
   <span class="tag">端到端全链路闭环 · 100% 审计追溯</span>
   <div class="controls">

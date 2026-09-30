@@ -52,7 +52,7 @@ ClawAgent 是一个面向科研场景的智能体运行时，基于 **LangGraph*
 
 ```bash
 git clone <你的仓库地址>
-cd CyberClaw
+cd ClawAgent
 
 python -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
@@ -302,7 +302,7 @@ START → planner ──▶ scheduler ──[Send fan-out]──▶ researcher×
 ## 📁 目录结构
 
 ```
-CyberClaw/
+ClawAgent/
 ├── clawgent/
 │   └── core/
 │       ├── agent.py              # 主 Agent 循环（ReAct + ToolNode）
