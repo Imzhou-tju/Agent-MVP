@@ -1,12 +1,12 @@
-# CyberClaw 核心系统架构说明
+# ClawAgent 核心系统架构说明
 
-CyberClaw 是一个基于 LangGraph 构建的**面向科研场景的可溯源智能体系统**。系统通过结构化状态机、数据范式解耦与异步审计机制，旨在缓解大语言模型在复杂多跳推演与长线调研过程中易出现的幻觉发散、多跳遗忘、并发写冲突与循环死锁等问题。
+ClawAgent 是一个基于 LangGraph 构建的**面向科研场景的可溯源智能体系统**。系统通过结构化状态机、数据范式解耦与异步审计机制，旨在缓解大语言模型在复杂多跳推演与长线调研过程中易出现的幻觉发散、多跳遗忘、并发写冲突与循环死锁等问题。
 
 ---
 
 ## 1. 核心系统拓扑 (System Topology)
 
-系统整体采用**“分层流转、中枢决策、旁路监听、闭环回路”**的拓扑架构，对应可视化拓扑见 [docs/architecture_diagram.html](file:///D:/Software/Project/CyberClaw/docs/architecture_diagram.html)。核心逻辑拓扑如下：
+系统整体采用**“分层流转、中枢决策、旁路监听、闭环回路”**的拓扑架构，对应可视化拓扑见 [docs/architecture_diagram.html](architecture_diagram.html)。核心逻辑拓扑如下：
 
 ```mermaid
 flowchart TD
